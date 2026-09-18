@@ -1,0 +1,29 @@
+# node -> model config. Read by model/gateway.py, called for real whenever
+# ANTHROPIC_API_KEY is set (orchestrator, planner, and both skills all go
+# through this).
+#
+# `temperature` is kept here as documented per-node intent (e.g.
+# "orchestrator/worker should be as deterministic as possible") but is NOT
+# actually sent to the API — Anthropic removed temperature/top_p/top_k for
+# current models, and the anthropic 1.x SDK dropped the parameter from
+# messages.create() entirely. See model/gateway.py's complete() for detail.
+
+default:
+  model: claude-haiku-4-5-20251001
+  temperature: 0.2
+
+orchestrator:
+  model: claude-haiku-4-5-20251001
+  temperature: 0.0
+
+planner:
+  model: claude-sonnet-5
+  temperature: 0.2
+
+expert:
+  model: claude-sonnet-5
+  temperature: 0.3
+
+worker:
+  model: claude-haiku-4-5-20251001
+  temperature: 0.0
