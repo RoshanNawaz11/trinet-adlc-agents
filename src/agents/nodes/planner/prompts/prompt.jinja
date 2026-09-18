@@ -1,0 +1,19 @@
+## Available skills
+
+{% for skill in skills %}
+- {{ skill.name }}: {{ skill.description }}
+{% endfor %}
+
+## User request
+
+{{ query }}
+
+{% if retry_feedback %}
+## Previous attempt was rejected
+
+{{ retry_feedback }}
+
+Fix the plan and try again.
+{% endif %}
+
+Produce the plan now as the JSON object described in the system prompt.

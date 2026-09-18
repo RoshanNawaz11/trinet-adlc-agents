@@ -93,9 +93,10 @@ async def publish_bundle_version(
     gateway: ModelGateway | None = None,
 ) -> str:
     client = _resolve_gateway(gateway).require_client()
+    upload_files = await _prefix_bundle_files(bundle_name, files)
     response = await client.skills.versions.create(
         skill_id=claude_skill_id,
-        files=_prefix_bundle_files(bundle_name, files),
+        files=upload_files,
     )
     version_id = response.id  # skver_... — no more epoch/prefix disambiguation needed
     logger.info("New version for %s → version_id=%s", claude_skill_id, version_id)

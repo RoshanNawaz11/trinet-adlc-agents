@@ -27,6 +27,30 @@ def list_bundle_names() -> list[str]:
     return names
 
 
+def _frontmatter(skill_md: str) -> dict[str, Any]:
+    if not skill_md.lstrip().startswith("---"):
+        return {}
+    parts = skill_md.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    try:
+        return yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        return {}
+
+
+def list_skill_catalog() -> list[dict[str, str]]:
+    """Name + description for each available skill bundle, for the planner
+    prompt — pulled from each bundle's skill.md frontmatter."""
+    catalog: list[dict[str, str]] = []
+    for name in list_bundle_names():
+        skill_md = (SKILLS_DIR / name / "skill.md").read_text(encoding="utf-8")
+        meta = _frontmatter(skill_md)
+        description = str(meta.get("description") or name).strip()
+        catalog.append({"name": name, "description": description})
+    return catalog
+
+
 #read those skill files
 # Read the skill bundle files
 async def read_bundle_files(bundle_name: str) -> list[tuple[str, str]]:

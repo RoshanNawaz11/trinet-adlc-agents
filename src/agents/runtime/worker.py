@@ -11,7 +11,13 @@ import asyncio
 import json
 import sys
 import uuid
+from pathlib import Path
 from typing import Any
+
+
+_SRC_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _SRC_ROOT not in sys.path:
+    sys.path.insert(0, _SRC_ROOT)
 
 from agents.graph.build import build_graph
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
@@ -64,6 +70,19 @@ async def run_query(
     if resume:
         result = await graph.ainvoke(None, config)
     else:
+        # Guard against restarting a thread that's mid-run instead of
+        # resuming it. A queue redelivery calling this without --resume
+        # on a paused thread_id would otherwise silently re-invoke with
+        # a fresh initial_state on top of existing checkpoint history —
+        # and Worker's dispatch step calls non-idempotent live actions
+        # (notify_on_call, create_ticket), so a silent restart risks
+        # firing those twice.
+        snapshot = await graph.aget_state(config)
+        if snapshot.next:
+            raise RuntimeError(
+                f"Thread {thread_id} is paused mid-run (next={list(snapshot.next)}) — "
+                "use --resume, not a fresh query, or you will restart instead of continue."
+            )
         result = await graph.ainvoke(_initial_state(query, thread_id), config)
 
     snapshot = await graph.aget_state(config)

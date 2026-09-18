@@ -2,6 +2,7 @@ from fastmcp import FastMCP
 
 import json
 import requests
+import uvicorn
 
 mcp = FastMCP("agents-server")
 
@@ -28,3 +29,9 @@ def get_tickets(query: str) -> str:
             if query in t["title"].lower() or query in t["status"] or query in t["id"].lower()
         ]
     return json.dumps(matches)
+
+
+app = mcp.http_app()
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8003)

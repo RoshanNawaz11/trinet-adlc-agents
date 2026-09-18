@@ -2599,9 +2599,11 @@ dependencies = [
     { name = "anthropic" },
     { name = "fastmcp" },
     { name = "graphql-mcp" },
+    { name = "httpx" },
     { name = "jinja2" },
     { name = "langgraph" },
     { name = "mcp", extra = ["cli"] },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
@@ -2610,9 +2612,11 @@ requires-dist = [
     { name = "anthropic", specifier = ">=1.6.0" },
     { name = "fastmcp", specifier = ">=3.4.7" },
     { name = "graphql-mcp", specifier = ">=2.1.5" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.13.0" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
