@@ -8,6 +8,7 @@ used as context (same idea as injecting entity_graph into the job skill).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agents.graph.states import Step
@@ -23,6 +24,8 @@ from agents.skills.io import (
 from agents.skills.loader import content_as_text, format_for_skill
 from agents.skills.registry import ensure_bundle_published
 from json_utils import JSONParseError
+
+logger = logging.getLogger(__name__)
 
 _BUNDLE = "classify"
 _JSON_INSTRUCTION = (
@@ -57,7 +60,12 @@ def _error_result(step: Step, message: str) -> dict[str, Any]:
 
 def _with_expert_context(state: dict[str, Any], step: Step) -> Step:
     payload = dict(step.get("input") or {})
-    if content_as_text(payload.get("content")).strip():
+    raw_content = payload.get("content")
+    if content_as_text(raw_content).strip():
+        logger.info(
+            "[%s] _with_expert_context: content already present (%r) — not substituting",
+            step["step_id"], content_as_text(raw_content)[:80],
+        )
         return step
     for result in reversed(state.get("step_results") or []):
         if result.get("agent") != "expert":
@@ -67,18 +75,30 @@ def _with_expert_context(state: dict[str, Any], step: Step) -> Step:
         output = result.get("output")
         if isinstance(output, dict):
             payload["content"] = output
+            logger.info(
+                "[%s] _with_expert_context: substituted expert output from step %r",
+                step["step_id"], result.get("step_id"),
+            )
             return {**step, "input": payload}
+    logger.warning(
+        "[%s] _with_expert_context: content empty and no usable expert result found",
+        step["step_id"],
+    )
     return step
 
 
 async def worker_node(state: dict[str, Any], gateway: ModelGateway | None = None) -> dict:
     step = _with_expert_context(state, _step(state))
+    step_id = step["step_id"]
+    logger.info("[%s] worker_node starting", step_id)
     gateway = gateway or get_default_gateway()
     content = (step.get("input") or {}).get("content")
     bounced = bounce_upstream_reason(content)
     if bounced:
+        logger.warning("[%s] worker_node: bounced upstream (%s)", step_id, bounced)
         return {"step_results": [bounced_classify(step, bounced)]}
     if not content_as_text(content).strip():
+        logger.warning("[%s] worker_node: content empty — bouncing", step_id)
         return {"step_results": [bounced_classify(step, "malformed_input")]}
 
     try:
@@ -95,11 +115,19 @@ async def worker_node(state: dict[str, Any], gateway: ModelGateway | None = None
         )
         raw = (executed or {}).get("raw_response") or ""
         if not raw:
+            logger.error("[%s] worker_node: classify skill returned no text", step_id)
             return {"step_results": [_error_result(step, "classify skill returned no text")]}
         parsed = parse_json(raw)
         result = normalize_classify(parsed, step)
+        logger.info(
+            "[%s] worker_node done: label=%s confidence=%s fallback_used=%s",
+            step_id, result.get("output", {}).get("label"),
+            result.get("confidence"), result.get("output", {}).get("fallback_used"),
+        )
         return {"step_results": [result]}
     except (SkillOutputError, JSONParseError) as exc:
+        logger.error("[%s] worker_node: skill output error: %s", step_id, exc)
         return {"step_results": [_error_result(step, str(exc))]}
     except Exception as exc:
+        logger.exception("[%s] worker_node: unexpected error", step_id)
         return {"step_results": [_error_result(step, str(exc))]}

@@ -5,6 +5,7 @@ ensure_bundle_published → run_skill → parse → normalize.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agents.graph.states import Step
@@ -15,6 +16,7 @@ from agents.skills.loader import format_for_skill
 from agents.skills.registry import ensure_bundle_published
 from json_utils import JSONParseError
 
+logger = logging.getLogger(__name__)
 
 _BUNDLE = "summarize"
 _JSON_INSTRUCTION = (
@@ -49,9 +51,12 @@ def _error_result(step: Step, message: str) -> dict[str, Any]:
 
 async def expert_node(state: dict[str, Any], gateway: ModelGateway | None = None) -> dict:
     step = _step(state)
+    step_id = step["step_id"]
+    logger.info("[%s] expert_node starting", step_id)
     gateway = gateway or get_default_gateway()
     source_text = (step.get("input") or {}).get("source_text")
     if not isinstance(source_text, str) or not source_text.strip():
+        logger.warning("[%s] expert_node: source_text missing/empty — bouncing", step_id)
         return {
             "step_results": [
                 empty_summarize(
@@ -76,11 +81,18 @@ async def expert_node(state: dict[str, Any], gateway: ModelGateway | None = None
         )
         raw = (executed or {}).get("raw_response") or ""
         if not raw:
+            logger.error("[%s] expert_node: summarize skill returned no text", step_id)
             return {"step_results": [_error_result(step, "summarize skill returned no text")]}
         parsed = parse_json(raw)
         result = normalize_summarize(parsed, step)
+        logger.info(
+            "[%s] expert_node done: confidence=%s escalation=%s",
+            step_id, result.get("confidence"), bool(result.get("escalation")),
+        )
         return {"step_results": [result]}
     except (SkillOutputError, JSONParseError) as exc:
+        logger.error("[%s] expert_node: skill output error: %s", step_id, exc)
         return {"step_results": [_error_result(step, str(exc))]}
     except Exception as exc:
+        logger.exception("[%s] expert_node: unexpected error", step_id)
         return {"step_results": [_error_result(step, str(exc))]}

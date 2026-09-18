@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import sys
 import uuid
 from pathlib import Path
@@ -23,6 +24,26 @@ from agents.graph.build import build_graph
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
 
 _graph = None
+_LOG_DIR = Path(__file__).resolve().parent.parent.parent.parent / "logs"
+
+
+def _setup_logging() -> None:
+
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    file_handler = logging.FileHandler(_LOG_DIR / "agents.log", encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(fmt)
+    root.addHandler(file_handler)
 
 
 def get_graph():
@@ -125,6 +146,7 @@ async def _cli(argv: list[str] | None = None) -> int:
 
 
 def main() -> None:
+    _setup_logging()
     raise SystemExit(asyncio.run(_cli()))
 
 

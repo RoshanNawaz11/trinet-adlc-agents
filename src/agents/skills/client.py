@@ -118,11 +118,16 @@ async def run_skill(
     gateway: ModelGateway | None = None,
 ) -> dict[str, Any]:
     client = _resolve_gateway(gateway).require_client()
- 
+
     user_content = input_text
     if additional_instructions:
         user_content = f"{additional_instructions}\n\n{input_text}"
- 
+
+    logger.info(
+        "run_skill: skill_id=%s version=%s model=%s max_tokens=%d input_chars=%d",
+        claude_skill_id, claude_version_id, model, max_tokens, len(user_content),
+    )
+
     response = await client.messages.create(
         model=model,
         max_tokens=max_tokens,
@@ -138,9 +143,36 @@ async def run_skill(
         messages=[{"role": "user", "content": user_content}],
         tools=[CODE_EXECUTION_TOOL],
     )
+
+    block_types = [getattr(b, "type", None) or (b.get("type") if isinstance(b, dict) else None)
+                   for b in (getattr(response, "content", []) or [])]
+    usage = getattr(response, "usage", None)
+    logger.info(
+        "run_skill result: stop_reason=%s block_types=%s input_tokens=%s output_tokens=%s",
+        getattr(response, "stop_reason", None),
+        block_types,
+        getattr(usage, "input_tokens", None),
+        getattr(usage, "output_tokens", None),
+    )
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        logger.warning(
+            "run_skill: response was CUT OFF by max_tokens=%d (skill_id=%s) — "
+            "raise max_tokens in policy.yaml if this keeps happening",
+            max_tokens, claude_skill_id,
+        )
+
     raw_response = await _collect_text(response)
+    logger.info("run_skill: collected %d chars of text from response", len(raw_response))
+    logger.debug("run_skill: raw_response=%r", raw_response)
+    if not raw_response:
+        logger.warning(
+            "run_skill: no text block found — response content types were %s "
+            "(likely tool_use/code_execution output with no separate text block)",
+            block_types,
+        )
+
     return {"raw_response": raw_response}
- 
+
 async def _collect_text(response: Any) -> str:
     parts: list[str] = []
     for block in getattr(response, "content", []) or []:

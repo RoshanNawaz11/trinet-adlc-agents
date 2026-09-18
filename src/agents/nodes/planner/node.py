@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,8 @@ from agents.model.gateway import ModelGateway, get_default_gateway
 from agents.skills.loader import list_skill_catalog
 from json_utils import JSONParseError, extract_json
 from prompting import render_prompt
+
+logger = logging.getLogger(__name__)
 
 _DIR = Path(__file__).parent
 SYSTEM_PROMPT = (_DIR / "prompts" / "system.txt").read_text(encoding="utf-8")
@@ -76,12 +79,13 @@ async def planner_node(state: State, gateway: ModelGateway | None = None) -> dic
     gateway = gateway or get_default_gateway()
     skills = list_skill_catalog()
     skill_names = {skill["name"] for skill in skills}
+    logger.info("planner_node starting: query=%r available_skills=%s", query[:100], sorted(skill_names))
     if not skills:
         raise PlanValidationError("no skill bundles are available")
 
     retry_feedback: str | None = None
     last_error: Exception | None = None
-    for _ in range(2):
+    for attempt in range(1, 3):
         user_prompt = render_prompt(
             PROMPT_PATH,
             query=query,
@@ -90,9 +94,16 @@ async def planner_node(state: State, gateway: ModelGateway | None = None) -> dic
         )
         raw = await gateway.complete("planner", system=SYSTEM_PROMPT, user=user_prompt)
         try:
-            return {"plan": _validate_plan(extract_json(raw), skill_names)}
+            plan = _validate_plan(extract_json(raw), skill_names)
+            logger.info(
+                "planner_node done (attempt %d): %d step(s) — %s",
+                attempt, len(plan), [(s["step_id"], s["skill"]) for s in plan],
+            )
+            return {"plan": plan}
         except (JSONParseError, PlanValidationError) as exc:
             last_error = exc
             retry_feedback = str(exc)
+            logger.warning("planner_node attempt %d rejected: %s", attempt, exc)
 
+    logger.error("planner_node failed after 2 attempts: %s", last_error)
     raise PlanValidationError(f"planner failed after two attempts: {last_error}")
