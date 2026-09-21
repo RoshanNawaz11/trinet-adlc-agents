@@ -1,11 +1,20 @@
 """Conditional edges.
 
-`route_after_planner` is what turns a `Plan` (an ordered list of steps) into
-parallel work: for each step, it emits a `Send(target_node, partial_state)`.
-LangGraph runs every emitted `Send` as its own node invocation, in parallel,
-each with only the state that `Send` gave it (here, just `{"step": ...}`) —
-this is the "map" half of a map-reduce; `state.py`'s `operator.add` reducer
-on `step_results` is the "reduce" half.
+classify's `content` is often meant to be a summarize step's output (see
+worker_node._with_expert_context) — a real dependency, not an independent
+task — so every summarize step must finish, and land in
+state["step_results"], before any classify step starts. LangGraph only
+merges a wave of parallel `Send`s into shared state once the whole wave
+finishes, so this is two waves joined by a real edge, not one mixed wave:
+
+  planner -> route_summarize_steps -> [expert]* -> classify_gate
+                                                  -> route_classify_steps -> [worker]* -> aggregate
+
+The planner (an LLM call) already decided which steps exist and what their
+input is. Which wave runs first — and that summarize always finishes before
+classify starts — is decided here, in plain code: deterministic, not a
+model call. Still the same "map" (Send-per-step) / "reduce" (`operator.add`
+on step_results) split as before, just split into two ordered waves.
 """
 
 from __future__ import annotations
@@ -14,17 +23,26 @@ from langgraph.types import Send
 
 from agents.graph.states import State
 
-NODE_FOR_SKILL = {
-    "summarize": "expert",
-    "classify": "worker",
-}
+
+def route_summarize_steps(state: State) -> list[Send | str]:
+    sends: list[Send | str] = [
+        Send("expert", {"step": step})
+        for step in state["plan"]
+        if step["skill"] == "summarize"
+    ]
+    return sends if sends else ["classify_gate"]
 
 
-def route_after_planner(state: State) -> list[Send]:
-    sends: list[Send] = []
-    for step in state["plan"]:
-        target = NODE_FOR_SKILL.get(step["skill"])
-        if target is None:
-            raise ValueError(f"No node registered for skill: {step['skill']}")
-        sends.append(Send(target, {"step": step}))
-    return sends
+def route_classify_steps(state: State) -> list[Send | str]:
+    # Send() gives each worker call ONLY this dict as its state — none of
+    # the outer graph state rides along automatically. worker_node reads
+    # step_results (via _with_expert_context) to find a finished summarize
+    # result, so it has to be included here explicitly, or every classify
+    # step sees an empty step_results regardless of what already finished.
+    step_results = state.get("step_results", [])
+    sends: list[Send | str] = [
+        Send("worker", {"step": step, "step_results": step_results})
+        for step in state["plan"]
+        if step["skill"] == "classify"
+    ]
+    return sends if sends else ["aggregate"]

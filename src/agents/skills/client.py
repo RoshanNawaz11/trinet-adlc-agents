@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 CODE_EXECUTION_TOOL = {"type": "code_execution_20250825", "name": "code_execution"}
 
+# The Messages API requires max_tokens. One value for every skill call.
+MAX_TOKENS = 4096
+
 #client connection to the model gateway
 def _resolve_gateway(gateway: ModelGateway | None) -> ModelGateway:
     return gateway if gateway is not None else get_default_gateway()
@@ -113,7 +116,6 @@ async def run_skill(
     input_text: str,
     *,
     model: str,
-    max_tokens: int,
     additional_instructions: str | None = None,
     gateway: ModelGateway | None = None,
 ) -> dict[str, Any]:
@@ -125,12 +127,12 @@ async def run_skill(
 
     logger.info(
         "run_skill: skill_id=%s version=%s model=%s max_tokens=%d input_chars=%d",
-        claude_skill_id, claude_version_id, model, max_tokens, len(user_content),
+        claude_skill_id, claude_version_id, model, MAX_TOKENS, len(user_content),
     )
 
     response = await client.messages.create(
         model=model,
-        max_tokens=max_tokens,
+        max_tokens=MAX_TOKENS,
         container={
             "skills": [
                 {
@@ -157,8 +159,8 @@ async def run_skill(
     if getattr(response, "stop_reason", None) == "max_tokens":
         logger.warning(
             "run_skill: response was CUT OFF by max_tokens=%d (skill_id=%s) — "
-            "raise max_tokens in policy.yaml if this keeps happening",
-            max_tokens, claude_skill_id,
+            "raise MAX_TOKENS in skills/client.py if this keeps happening",
+            MAX_TOKENS, claude_skill_id,
         )
 
     raw_response = await _collect_text(response)

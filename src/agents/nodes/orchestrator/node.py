@@ -5,7 +5,8 @@ from pathlib import Path
 
 from agents.graph.states import State
 from agents.model.gateway import MissingAPIKeyError, ModelGateway, get_default_gateway
-from json_utils import extract_json
+from agents.tools.bindings import complete_with_mcp_tools
+from json_utils import JSONParseError, extract_json
 from prompting import render_prompt
 
 logger = logging.getLogger(__name__)
@@ -22,10 +23,15 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
 
     try:
         user_prompt = render_prompt(PROMPT_PATH, query=query)
-        raw = await gateway.complete("orchestrator", system=SYSTEM_PROMPT, user=user_prompt)
+        raw = await complete_with_mcp_tools(
+            "orchestrator", "agents", system=SYSTEM_PROMPT, user=user_prompt, gateway=gateway
+        )
         result = extract_json(raw)
         flagged = bool(result["flagged"])
         logger.info("orchestrator_node: model result=%s", result)
+    except JSONParseError:
+        logger.exception("orchestrator_node: could not parse model output: %r", raw)
+        raise
     except MissingAPIKeyError:
         flagged = "urgent" in query.lower()
         logger.warning(

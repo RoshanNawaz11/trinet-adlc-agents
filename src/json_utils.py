@@ -9,9 +9,6 @@ rather than assuming `response.strip()` is valid JSON outright.
 from __future__ import annotations
 
 import json
-import re
-
-_JSON_BLOCK = re.compile(r"[\{\[].*[\}\]]", re.DOTALL)
 
 
 class JSONParseError(ValueError):
@@ -19,10 +16,20 @@ class JSONParseError(ValueError):
 
 
 def extract_json(text: str) -> object:
-    match = _JSON_BLOCK.search(text)
-    if not match:
-        raise JSONParseError(f"No JSON object/array found in model output: {text!r}")
-    try:
-        return json.loads(match.group(0))
-    except json.JSONDecodeError as exc:
-        raise JSONParseError(f"Model output looked like JSON but didn't parse: {exc}") from exc
+    """Parse the first top-level JSON value in `text`.
+
+    `JSONDecoder.raw_decode` stops at the end of that value, so a second
+    object or a trailing sentence does not fail with Extra data. The greedy
+    `{...}` regex used to swallow everything from the first brace to the
+    last, which is invalid JSON when the model emits two objects.
+    """
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char not in "{[":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text, index)
+            return value
+        except json.JSONDecodeError:
+            continue
+    raise JSONParseError(f"No JSON object/array found in model output: {text!r}")

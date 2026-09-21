@@ -12,8 +12,19 @@ import json
 from typing import Any
 
 from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 
 from agents.tools.scopes import MCP_SERVERS, assert_mcp_allowed
+
+NODE_HEADER = "x-agent-node"
+
+
+def mcp_client(url: str, node: str | None = None) -> Client:
+    """HTTP MCP client. `node` is sent as x-agent-node so the server can scope the call."""
+    headers = {NODE_HEADER: node} if node else None
+    if headers:
+        return Client(StreamableHttpTransport(url, headers=headers))
+    return Client(url)
 
 
 async def call_mcp_tool(node: str, server: str, tool_name: str, **kwargs: Any) -> Any:
@@ -26,7 +37,7 @@ async def call_mcp_tool(node: str, server: str, tool_name: str, **kwargs: Any) -
     assert_mcp_allowed(node, server, tool_name)
     url = MCP_SERVERS[server]
 
-    async with Client(url) as client:
+    async with mcp_client(url, node) as client:
         result = await client.call_tool(tool_name, kwargs)
 
     data = result.data

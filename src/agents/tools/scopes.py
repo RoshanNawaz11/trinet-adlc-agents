@@ -1,11 +1,5 @@
 """Which agent node may reach which dummy MCP/GraphQL tool.
 
-Both dummy servers live in mcp_server/: `agents_server.py` (hand-written MCP
-tools, port 8003) and `graphql_server.py` (GraphQL schema auto-exposed as MCP
-tools + a raw /graphql endpoint, port 8002). Nodes don't get free access to
-either — every call in mcp_client.py / graphql_client.py is checked against
-the maps below first, so adding a new tool doesn't silently open it up to
-every agent.
 """
 
 from __future__ import annotations
@@ -15,23 +9,23 @@ MCP_SERVERS: dict[str, str] = {
 }
 
 GRAPHQL_SERVERS: dict[str, str] = {
-    "tickets": "http://localhost:8002/graphql",
+    "trinet": "http://localhost:8002/graphql",
 }
 
 # node name -> MCP tool names it may call, per server key above
 NODE_MCP_SCOPES: dict[str, dict[str, set[str]]] = {
-    "orchestrator": {"agents": {"get_tickets"}},
+    "orchestrator": {"agents": {"get_employees"}},
     "planner": {},
     "expert": {},
-    "worker": {"agents": {"get_tickets"}},
+    "worker": {"agents": {"get_employees"}},
 }
 
 # node name -> GraphQL field names it may query, per server key above
 NODE_GRAPHQL_SCOPES: dict[str, dict[str, set[str]]] = {
-    "orchestrator": {"tickets": {"tickets"}},
+    "orchestrator": {"trinet": {"employees"}},
     "planner": {},
     "expert": {},
-    "worker": {"tickets": {"tickets"}},
+    "worker": {"trinet": {"employees"}},
 }
 
 

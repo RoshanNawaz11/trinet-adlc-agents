@@ -35,9 +35,9 @@ def _step(state: dict[str, Any]) -> Step:
     return step
 
 
-def _config(gateway: ModelGateway) -> tuple[str, int]:
+def _config(gateway: ModelGateway) -> str:
     cfg = gateway.policy.get("expert", gateway.policy["default"])
-    return str(cfg["model"]), int(cfg.get("max_tokens", 1024))
+    return str(cfg["model"])
 
 
 def _error_result(step: Step, message: str) -> dict[str, Any]:
@@ -69,13 +69,12 @@ async def expert_node(state: dict[str, Any], gateway: ModelGateway | None = None
 
     try:
         skill_id, version_id = await ensure_bundle_published(_BUNDLE, gateway=gateway)
-        model, max_tokens = _config(gateway)
+        model = _config(gateway)
         executed = await run_skill(
             skill_id,
             version_id,
             format_for_skill(step),
             model=model,
-            max_tokens=max_tokens,
             additional_instructions=_JSON_INSTRUCTION,
             gateway=gateway,
         )

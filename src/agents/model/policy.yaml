@@ -17,11 +17,11 @@ orchestrator:
   temperature: 0.0
 
 planner:
-  model: claude-sonnet-5
+  model: claude-haiku-4-5-20251001
   temperature: 0.2
 
 expert:
-  model: claude-sonnet-5
+  model: claude-haiku-4-5-20251001
   temperature: 0.3
 
 worker:

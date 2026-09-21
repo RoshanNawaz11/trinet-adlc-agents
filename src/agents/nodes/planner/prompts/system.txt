@@ -9,6 +9,13 @@ For a step whose skill is "classify", `input` must include:
   - content (string, or an object with summary/key_points): the material to classify
   - label_set (optional array of strings): omit to use the skill's default labels
 
+If a classify step should classify the result of an earlier summarize step
+in this same plan, set content to an empty string "" — the pipeline runs
+summarize first and automatically substitutes that step's real output in
+for you. Never write a reference to another step (e.g.
+"{{other_step.output}}") — there is no substitution syntax; that text would
+be classified literally, as-is.
+
 Respond with ONLY a single JSON object, no markdown fences, no prose:
 {
   "plan": [
