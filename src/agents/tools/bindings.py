@@ -35,8 +35,10 @@ async def _allowed_tools(node: str, server: str) -> list[dict]:
 
 async def complete_with_mcp_tools(
     node: str, server: str, system: str, user: str, gateway: ModelGateway
-) -> str:
+) -> tuple[str, list[dict]]:
+    """Return (final text, MCP calls). Calls are kept so later nodes can use the data."""
     client = gateway.require_client()
+    tool_results: list[dict] = []
 
     try:
         tools = await _allowed_tools(node, server)
@@ -44,7 +46,7 @@ async def complete_with_mcp_tools(
         logger.warning("[%s] could not list MCP tools on %r (%s) — running without tools", node, server, exc)
         tools = []
     if not tools:
-        return await gateway.complete(node, system=system, user=user)
+        return await gateway.complete(node, system=system, user=user), tool_results
 
     logger.info("[%s] offering MCP tools: %s", node, [t["name"] for t in tools])
     config = gateway.policy.get(node, gateway.policy["default"])
@@ -59,7 +61,8 @@ async def complete_with_mcp_tools(
             tools=tools,
         )
         if response.stop_reason != "tool_use":
-            return "".join(b.text for b in response.content if b.type == "text")
+            text = "".join(b.text for b in response.content if b.type == "text")
+            return text, tool_results
 
         messages.append({"role": "assistant", "content": response.content})
         results = []
@@ -71,10 +74,14 @@ async def complete_with_mcp_tools(
                 data = await call_mcp_tool(node, server, block.name, **block.input)
                 content = data if isinstance(data, str) else json.dumps(data)
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": content})
+                tool_results.append({"tool": block.name, "input": block.input, "result": content})
             except Exception as exc:
                 logger.warning("[%s] MCP tool %s failed: %s", node, block.name, exc)
                 results.append(
                     {"type": "tool_result", "tool_use_id": block.id, "content": str(exc), "is_error": True}
+                )
+                tool_results.append(
+                    {"tool": block.name, "input": block.input, "result": str(exc), "error": True}
                 )
         messages.append({"role": "user", "content": results})
 

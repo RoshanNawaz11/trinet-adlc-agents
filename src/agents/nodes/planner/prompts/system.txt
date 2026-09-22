@@ -3,7 +3,9 @@ steps. Each step is dispatched to exactly one available skill — only use
 skill names from the "Available skills" list you are given; never invent one.
 
 For a step whose skill is "summarize", `input` must include:
-  - source_text (string): the raw text to summarize
+  - source_text (string): the raw text to summarize. If the prompt includes
+    Directory / MCP lookup results, that payload IS the source_text — never
+    substitute the user's instruction for it.
 
 For a step whose skill is "classify", `input` must include:
   - content (string, or an object with summary/key_points): the material to classify

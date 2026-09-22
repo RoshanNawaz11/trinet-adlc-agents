@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,31 @@ def _validate_plan(parsed: object, valid_skill_names: set[str]) -> list[Step]:
     return plan
 
 
+def format_mcp_source(mcp_results: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for item in mcp_results:
+        tool = item.get("tool", "tool")
+        args = json.dumps(item.get("input") or {}, default=str)
+        parts.append(f"{tool}({args}):\n{item.get('result', '')}")
+    return "\n\n".join(parts)
+
+
+def inject_mcp_source(plan: list[Step], mcp_results: list[dict[str, Any]]) -> list[Step]:
+    """Summarize must see directory data, not only the user instruction."""
+    if not mcp_results:
+        return plan
+    blob = format_mcp_source(mcp_results)
+    injected: list[Step] = []
+    for step in plan:
+        if step["skill"] != "summarize":
+            injected.append(step)
+            continue
+        payload = dict(step.get("input") or {})
+        payload["source_text"] = blob
+        injected.append({**step, "input": payload})
+    return injected
+
+
 async def planner_node(state: State, gateway: ModelGateway | None = None) -> dict:
     query = state["query"]
     gateway = gateway or get_default_gateway()
@@ -91,13 +117,18 @@ async def planner_node(state: State, gateway: ModelGateway | None = None) -> dic
             query=query,
             skills=skills,
             retry_feedback=retry_feedback,
+            mcp_context=format_mcp_source(state.get("mcp_results") or []),
         )
         raw = await gateway.complete("planner", system=SYSTEM_PROMPT, user=user_prompt)
         try:
-            plan = _validate_plan(extract_json(raw), skill_names)
+            plan = inject_mcp_source(
+                _validate_plan(extract_json(raw), skill_names),
+                list(state.get("mcp_results") or []),
+            )
             logger.info(
-                "planner_node done (attempt %d): %d step(s) — %s",
+                "planner_node done (attempt %d): %d step(s) — %s mcp_source=%s",
                 attempt, len(plan), [(s["step_id"], s["skill"]) for s in plan],
+                bool(state.get("mcp_results")),
             )
             return {"plan": plan}
         except (JSONParseError, PlanValidationError) as exc:

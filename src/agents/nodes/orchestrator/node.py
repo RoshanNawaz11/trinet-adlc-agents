@@ -21,14 +21,15 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
     gateway = gateway or get_default_gateway()
     logger.info("orchestrator_node starting for query=%r", query[:100])
 
+    mcp_results: list = []
     try:
         user_prompt = render_prompt(PROMPT_PATH, query=query)
-        raw = await complete_with_mcp_tools(
+        raw, mcp_results = await complete_with_mcp_tools(
             "orchestrator", "agents", system=SYSTEM_PROMPT, user=user_prompt, gateway=gateway
         )
         result = extract_json(raw)
         flagged = bool(result["flagged"])
-        logger.info("orchestrator_node: model result=%s", result)
+        logger.info("orchestrator_node: model result=%s mcp_calls=%d", result, len(mcp_results))
     except JSONParseError:
         logger.exception("orchestrator_node: could not parse model output: %r", raw)
         raise
@@ -43,4 +44,5 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
     return {
         "flagged": flagged,
         "status": "needs_review" if flagged else "running",
+        "mcp_results": mcp_results,
     }

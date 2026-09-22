@@ -26,6 +26,7 @@ class State(TypedDict):
     query: str
     status: Literal["running", "needs_review", "done", "failed"]
     flagged: bool               # interrupt / human review
+    mcp_results: NotRequired[list[dict[str, Any]]]  # orchestrator tool calls, for later steps
     plan: NotRequired[list[Step]]
     step_results: Annotated[list[StepResult], operator.add]
     final_output: NotRequired[dict[str, Any]]

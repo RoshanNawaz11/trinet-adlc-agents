@@ -15,13 +15,17 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-
+import langwatch
+from langwatch.telemetry.tracing import trace
+from langwatch.telemetry.context import get_current_trace
 _SRC_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
 from agents.graph.build import build_graph
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
+from agents.observability.langwatch_setup import langwatch_setup
+from agents.observability.tracing import attach_metadata, maybe_trace
 
 _graph = None
 _LOG_DIR = Path(__file__).resolve().parent.parent.parent.parent / "logs"
@@ -65,9 +69,12 @@ def _initial_state(query: str, run_id: str) -> dict[str, Any]:
 
 
 def _config(thread_id: str) -> dict[str, Any]:
-    return {"configurable": {"thread_id": thread_id}}
+    return {
+        "configurable": {"thread_id": thread_id},
+        "callbacks": [get_current_trace().get_langchain_callback()],
+        }
 
-
+@maybe_trace("run-agent-query")
 async def run_query(
     query: str,
     *,
@@ -76,6 +83,7 @@ async def run_query(
 ) -> dict[str, Any]:
     graph = get_graph()
     thread_id = thread_id or str(uuid.uuid4())
+    attach_metadata(thread_id=thread_id, resume=resume)
     config = _config(thread_id)
     key = idempotency_key(f"{thread_id}:{query}")
 
@@ -147,6 +155,7 @@ async def _cli(argv: list[str] | None = None) -> int:
 
 def main() -> None:
     _setup_logging()
+    langwatch_setup()
     raise SystemExit(asyncio.run(_cli()))
 
 

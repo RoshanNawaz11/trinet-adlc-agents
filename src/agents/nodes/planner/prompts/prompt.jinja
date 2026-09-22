@@ -8,6 +8,16 @@
 
 {{ query }}
 
+{% if mcp_context %}
+## Directory / MCP lookup results
+
+The orchestrator already fetched this. If a summarize step needs that data,
+put it in `source_text` — do not use the user request as source_text when
+this block is present. An empty list means the lookup ran and found no rows.
+
+{{ mcp_context }}
+{% endif %}
+
 {% if retry_feedback %}
 ## Previous attempt was rejected
 
