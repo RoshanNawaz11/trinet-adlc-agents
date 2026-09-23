@@ -3234,6 +3234,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langwatch" },
     { name = "mcp", extra = ["cli"] },
+    { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
@@ -3249,6 +3250,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "langwatch", specifier = ">=1.4.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.13.0" },
+    { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]

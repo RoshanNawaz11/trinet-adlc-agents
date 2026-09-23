@@ -1,9 +1,4 @@
-"""Agent-side MCP client — connects to the dummy MCP servers in mcp_server/
-(agents_server.py, and the MCP tools graphql_server.py auto-derives from its
-GraphQL schema) and calls a tool on behalf of a given node.
-
-Uses `fastmcp.Client` rather than the raw `mcp` SDK since it's already what
-`graphql_mcp`/our servers are built on — same library, client side.
+"""Agent-side MCP client — connects to the server configured in scopes.py
 """
 
 from __future__ import annotations
@@ -14,31 +9,49 @@ from typing import Any
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
-from agents.tools.scopes import MCP_SERVERS, assert_mcp_allowed
+from agents.tools.scopes import MCP_SERVER
 
-NODE_HEADER = "x-agent-node"
+NODE_HEADER = "x-agent-node"  # header name is a protocol constant, not per-deployment config
+DEFAULT_TIMEOUT = 30.0  # seconds — measured handshake is ~11s, so leave real headroom
 
 
-def mcp_client(url: str, node: str | None = None) -> Client:
-    """HTTP MCP client. `node` is sent as x-agent-node so the server can scope the call."""
+def mcp_client(node: str | None = None) -> Client:
+    """HTTP MCP client for MCP_SERVER. `node` is sent as x-agent-node for server-side logging/auditing."""
     headers = {NODE_HEADER: node} if node else None
-    if headers:
-        return Client(StreamableHttpTransport(url, headers=headers))
-    return Client(url)
+    transport = StreamableHttpTransport(MCP_SERVER, headers=headers) if headers else MCP_SERVER
+    return Client(transport, timeout=DEFAULT_TIMEOUT)
 
 
-async def call_mcp_tool(node: str, server: str, tool_name: str, **kwargs: Any) -> Any:
-    """Call `tool_name` on `server` (a key in MCP_SERVERS) as `node`.
+def tool_tags(tool: Any) -> set[str]:
+    meta = tool.meta or {}
+    return set(meta.get("fastmcp", {}).get("tags", []))
 
-    Raises ScopeError if `node` isn't scoped to call this tool, or
-    ConnectionError-style exceptions from fastmcp if the server isn't running
-    — callers decide whether that's fatal or something to fall back on.
+
+async def list_mcp_tools(client: Client) -> list[dict]:
+    """Tools MCP_SERVER currently exposes, each with the tags the server put on it.
+
+    `tags` rides alongside Claude's tool-schema fields, not inside them — the
+    Anthropic API rejects unknown keys, so callers strip it before the call.
     """
-    assert_mcp_allowed(node, server, tool_name)
-    url = MCP_SERVERS[server]
+    tools = await client.list_tools()
+    return [
+        {
+            "name": t.name,
+            "description": t.description or "",
+            "input_schema": t.inputSchema,
+            "tags": tool_tags(t),
+        }
+        for t in tools
+    ]
 
-    async with mcp_client(url, node) as client:
-        result = await client.call_tool(tool_name, kwargs)
+
+async def call_mcp_tool(client: Client, tool_name: str, **kwargs: Any) -> Any:
+    """Call `tool_name` on an already-open MCP client connection.
+
+    Raises ConnectionError-style exceptions from fastmcp if the server isn't
+    running — callers decide whether that's fatal or something to fall back on.
+    """
+    result = await client.call_tool(tool_name, kwargs)
 
     data = result.data
     if isinstance(data, str):

@@ -25,7 +25,7 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
     try:
         user_prompt = render_prompt(PROMPT_PATH, query=query)
         raw, mcp_results = await complete_with_mcp_tools(
-            "orchestrator", "agents", system=SYSTEM_PROMPT, user=user_prompt, gateway=gateway
+            "orchestrator", system=SYSTEM_PROMPT, user=user_prompt, gateway=gateway
         )
         result = extract_json(raw)
         flagged = bool(result["flagged"])
