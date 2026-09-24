@@ -24,6 +24,7 @@ if _SRC_ROOT not in sys.path:
 
 from agents.graph.build import build_graph
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
+from agents.runtime.samples import SAMPLES, format_samples, resolve_query
 from agents.observability.langwatch_setup import langwatch_setup
 from agents.observability.tracing import attach_metadata, maybe_trace
 
@@ -130,6 +131,18 @@ async def run_query(
 async def _cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the agent graph for a query.")
     parser.add_argument("query", nargs="?", help="User query (State['query']).")
+    parser.add_argument(
+        "--sample",
+        dest="sample",
+        default=None,
+        metavar="NAME",
+        help=f"Named sample query instead of typing one. Known: {', '.join(sorted(SAMPLES))}.",
+    )
+    parser.add_argument(
+        "--list-samples",
+        action="store_true",
+        help="Print named sample queries and exit.",
+    )
     parser.add_argument("--thread-id", dest="thread_id", default=None)
     parser.add_argument(
         "--resume",
@@ -138,15 +151,17 @@ async def _cli(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.resume:
-        if not args.thread_id:
-            parser.error("--resume requires --thread-id")
-        query = args.query or ""
-    elif not args.query:
-        parser.error("query is required unless --resume")
-        return 2
-    else:
-        query = args.query
+    if args.list_samples:
+        print(format_samples())
+        return 0
+
+    if args.resume and not args.thread_id:
+        parser.error("--resume requires --thread-id")
+
+    try:
+        query = resolve_query(query=args.query, sample=args.sample, resume=args.resume)
+    except (KeyError, ValueError) as exc:
+        parser.error(str(exc))
 
     out = await run_query(query, thread_id=args.thread_id, resume=args.resume)
     print(json.dumps(out, default=str, indent=2))
