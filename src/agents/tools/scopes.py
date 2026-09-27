@@ -13,7 +13,9 @@ class ScopeSettings(BaseSettings):
         extra="ignore",
     )
 
-    mcp_server: AnyHttpUrl = Field(alias="MCP_SERVER")
+    mcp_server: AnyHttpUrl | None = Field(default=None, alias="MCP_SERVER")
 
 
-MCP_SERVER: str = str(ScopeSettings().mcp_server)
+# None when MCP_SERVER isn't set — the agents then run without MCP tools.
+_server = ScopeSettings().mcp_server
+MCP_SERVER: str | None = str(_server) if _server else None

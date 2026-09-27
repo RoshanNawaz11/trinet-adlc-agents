@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.7.0",
+    "fastapi>=0.141.1",
     "fastmcp>=3.4.7",
     "graphql-mcp>=2.1.5",
     "httpx>=0.27.0",
@@ -17,7 +18,18 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
     "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.53.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Lets the FastAPI backend install this as a package. json_utils and prompting are
+# top-level modules in src/ that the agents import.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+include = ["src/agents", "src/json_utils.py", "src/prompting.py"]
 
 [dependency-groups]
 dev = [

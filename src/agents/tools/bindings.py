@@ -14,6 +14,7 @@ from contextlib import AsyncExitStack
 
 from agents.model.gateway import ModelGateway
 from agents.tools.mcp_client import call_mcp_tool, list_mcp_tools, mcp_client
+from agents.tools.scopes import MCP_SERVER
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,8 @@ async def complete_with_mcp_tools(
     node: str, system: str, user: str, gateway: ModelGateway
 ) -> tuple[str, list[dict]]:
     """Return (final text, MCP calls). Calls are kept so later nodes can use the data."""
+    if not MCP_SERVER:
+        return await gateway.complete(node, system=system, user=user), []
     client = gateway.require_client()
     tool_results: list[dict] = []
 

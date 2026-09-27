@@ -19,6 +19,7 @@ set one up.
 from __future__ import annotations
 
 import os
+from contextvars import ContextVar
 from pathlib import Path
 
 import anthropic
@@ -55,12 +56,26 @@ def _ssl_ca_bundle() -> str | None:
     return bundle if bundle and Path(bundle).is_file() else None
 
 
-def _http_client() -> httpx2.AsyncClient:
-    # anthropic's SDK vendors its own httpx fork (httpx2) and rejects a
-    # plain httpx.AsyncClient passed as http_client — must build this one
-    # from httpx2, not httpx.
+# Set by the runtime per run (thread_id). Sent to LiteLLM as its session id so its
+# traces can be grouped by run — LiteLLM is the only thing talking to observability.
+session_id: ContextVar[str | None] = ContextVar("litellm_session_id", default=None)
+
+
+async def _add_session_header(request: httpx2.Request) -> None:
+    sid = session_id.get()
+    if sid:
+        request.headers["x-litellm-session-id"] = sid
+
+
+def _http_client(to_litellm: bool = False) -> httpx2.AsyncClient:
+    #httpx2 is used as the anthropic library doesnot accept the httpx library
+    kwargs: dict[str, object] = {}
     bundle = _ssl_ca_bundle()
-    return httpx2.AsyncClient(verify=bundle) if bundle else httpx2.AsyncClient()
+    if bundle:
+        kwargs["verify"] = bundle
+    if to_litellm:
+        kwargs["event_hooks"] = {"request": [_add_session_header]}
+    return httpx2.AsyncClient(**kwargs)
 
 
 def _gateway_token() -> str | None:
@@ -80,6 +95,18 @@ class ModelGateway:
         self._client = self._build_client()
 
     def _build_client(self) -> anthropic.AsyncAnthropic | None:
+        # LiteLLM route: when ANTHROPIC_API_KEY and LITELLM_BASE_URL are both set,
+        # every call (chat, tools, skills, code execution) goes through the proxy
+        # (e.g. http://localhost:4000/anthropic, its Anthropic pass-through) instead
+        # of Cloudflare. Otherwise falls through to the direct/Cloudflare path below.
+        litellm_url = os.environ.get("LITELLM_BASE_URL")
+        if self._api_key and litellm_url:
+            return anthropic.AsyncAnthropic(
+                api_key=self._api_key,
+                base_url=litellm_url.rstrip("/"),
+                http_client=_http_client(to_litellm=True),
+            )
+
         uses_gateway = _uses_gateway_byok()
         if not self._api_key and not uses_gateway:
             return None
@@ -100,17 +127,13 @@ class ModelGateway:
             return anthropic.AsyncAnthropic(api_key=None, auth_token=gateway_token, **kwargs)
         return anthropic.AsyncAnthropic(api_key=self._api_key, **kwargs)
 
-    @property
-    def is_live(self) -> bool:
-        return self._client is not None
-
     def require_client(self) -> anthropic.AsyncAnthropic:
         """Raw client access for callers that need more than `complete()`
         exposes — e.g. `container`/`tools` params for Skills + code
         execution, which have no equivalent in the plain chat-completion
         shape `complete()` wraps. Same missing-credentials guard as
         `complete()`, so callers get one consistent failure mode either way."""
-        if not self.is_live:
+        if self._client is None:
             raise MissingAPIKeyError(
                 "No Anthropic credentials configured — set ANTHROPIC_API_KEY, "
                 "or USE_CLOUDFLARE_AIG=true with ANTHROPIC_GATEWAY_TOKEN/"

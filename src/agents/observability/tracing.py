@@ -15,6 +15,8 @@ def maybe_trace(name: str):
 
 
 def attach_metadata(**fields):
+    if os.getenv("LANGWATCH_DISABLED", "false").lower() == "true":
+        return  # get_current_trace() would auto-start the SDK against the default (Cloud) endpoint
     try:
         get_current_trace().update(metadata=fields)
     except Exception:

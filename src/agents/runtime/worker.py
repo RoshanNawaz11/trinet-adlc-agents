@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -23,6 +24,7 @@ if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
 from agents.graph.build import build_graph
+from agents.model.gateway import session_id
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
 from agents.runtime.samples import SAMPLES, format_samples, resolve_query
 from agents.observability.langwatch_setup import langwatch_setup
@@ -70,10 +72,11 @@ def _initial_state(query: str, run_id: str) -> dict[str, Any]:
 
 
 def _config(thread_id: str) -> dict[str, Any]:
-    return {
-        "configurable": {"thread_id": thread_id},
-        "callbacks": [get_current_trace().get_langchain_callback()],
-        }
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    # No agent-side trace when LANGWATCH_DISABLED=true — LiteLLM does the tracing.
+    if os.getenv("LANGWATCH_DISABLED", "false").lower() != "true":
+        config["callbacks"] = [get_current_trace().get_langchain_callback()]
+    return config
 
 @maybe_trace("run-agent-query")
 async def run_query(
@@ -84,6 +87,7 @@ async def run_query(
 ) -> dict[str, Any]:
     graph = get_graph()
     thread_id = thread_id or str(uuid.uuid4())
+    session_id.set(thread_id)  # LiteLLM logs this as the session on every call of this run
     attach_metadata(thread_id=thread_id, resume=resume)
     config = _config(thread_id)
     key = idempotency_key(f"{thread_id}:{query}")

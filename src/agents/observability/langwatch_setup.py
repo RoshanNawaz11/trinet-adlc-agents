@@ -11,7 +11,10 @@ def langwatch_setup():
     global initialised
     if initialised:
         return
-    disabled = os.getenv("LANGWATCH_DISABLED", "false").lower() == "true"
+    if os.getenv("LANGWATCH_DISABLED", "false").lower() == "true":
+        logger.warning("Langwatch is disabled")
+        initialised = True
+        return
 
     try:
         langwatch.setup(
@@ -19,8 +22,6 @@ def langwatch_setup():
             endpoint_url = os.getenv("LANGWATCH_ENDPOINT_URL", "https://app.langwatch.ai"),
         )
         initialised = True
-        if disabled:
-            logger.warning("Langwatch is disabled")
     except Exception:
         logger.exception("Failed to setup Langwatch")
         initialised = True
