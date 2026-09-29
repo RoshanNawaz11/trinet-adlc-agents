@@ -64,7 +64,17 @@ async def find_remote_skill_by_name(
         logger.warning("Could not list remote skills: %s", exc)
     return None
 
- 
+
+#a cached id is only good for the Anthropic account the gateway points at
+async def skill_exists(claude_skill_id: str, *, gateway: ModelGateway | None = None) -> bool:
+    client = _resolve_gateway(gateway).require_skills_client()
+    try:
+        await client.skills.retrieve(claude_skill_id)
+        return True
+    except anthropic.NotFoundError:
+        return False
+
+
 #publishing the skill to the anthropic platform
 async def publish_bundle(
     display_name: str,

@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import TypedDict
 
 from agents.model.gateway import ModelGateway
-from agents.skills.client import publish_bundle, publish_bundle_version, find_remote_skill_by_name
+from agents.skills.client import (
+    find_remote_skill_by_name,
+    publish_bundle,
+    publish_bundle_version,
+    skill_exists,
+)
 from agents.skills.loader import SKILLS_DIR, read_bundle_files
 
 logger = logging.getLogger(__name__)
@@ -64,7 +69,17 @@ async def ensure_bundle_published(
  
     registry = _load_registry()
     cached: CachedSkill | None = registry.get(bundle_name)
- 
+
+    # The cached id is gone when the gateway now points at a different
+    # Anthropic account (new gateway or key) — forget it and publish again.
+    if cached and not await skill_exists(cached["claude_skill_id"], gateway=gateway):
+        logger.info(
+            "Cached skill for '%s' (%s) not found at Anthropic — re-publishing",
+            bundle_name,
+            cached["claude_skill_id"],
+        )
+        cached = None
+
     if cached and cached.get("content_hash") == digest:
         logger.debug("Bundle '%s' unchanged — reusing cached IDs", bundle_name)
         return cached["claude_skill_id"], cached["claude_version_id"]
