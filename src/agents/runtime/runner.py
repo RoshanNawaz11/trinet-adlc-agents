@@ -1,7 +1,5 @@
-"""Process entrypoint: build the compiled graph and invoke/resume it.
-
-This is the runtime worker (queue consumer / CLI), not nodes/worker
-(the classify skill node).
+"""Runs the agent graph: builds it once, starts a run for a service order and
+resumes a paused one. Used by the HTTP server and as a CLI.
 """
 
 from __future__ import annotations
@@ -16,8 +14,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import langwatch
-from langwatch.telemetry.tracing import trace
 from langwatch.telemetry.context import get_current_trace
 _SRC_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _SRC_ROOT not in sys.path:
@@ -26,7 +22,8 @@ if _SRC_ROOT not in sys.path:
 from agents.graph.build import build_graph
 from agents.model.gateway import session_id
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
-from agents.runtime.samples import SAMPLES, format_samples, resolve_query
+from agents.tools.mcp_client import call_mcp_tool, mcp_client
+from agents.tools.scopes import MCP_SERVER
 from agents.observability.langwatch_setup import langwatch_setup
 from agents.observability.tracing import attach_metadata, maybe_trace
 
@@ -60,15 +57,36 @@ def get_graph():
     return _graph
 
 
-def _initial_state(query: str, run_id: str) -> dict[str, Any]:
-    return {
+async def fetch_service_order(so_id: str) -> dict[str, Any]:
+    """The service order record, fetched in code so every run starts from the
+    real order rather than a text description of it."""
+    if not MCP_SERVER:
+        raise RuntimeError("MCP_SERVER is not set — needed to fetch the service order")
+    async with mcp_client("runner") as mcp:
+        data = await call_mcp_tool(mcp, "get_service_order", so_id=so_id)
+    record = data.get("serviceOrder") if isinstance(data, dict) else None
+    if not record:
+        raise LookupError(f"Service order {so_id} not found")
+    return record
+
+
+def _initial_state(
+    run_id: str, query: str, service_order_id: str | None, service_order: dict[str, Any] | None
+) -> dict[str, Any]:
+    state: dict[str, Any] = {
         "schema_version": 1,
         "run_id": run_id,
-        "query": query,
         "status": "running",
         "flagged": False,
-        "step_results": [],
+        "results": {},
+        "steps": [],
+        "flags": [],
     }
+    if service_order is not None:
+        state |= {"service_order_id": service_order_id, "service_order": service_order}
+    else:
+        state["query"] = query
+    return state
 
 
 def _config(thread_id: str) -> dict[str, Any]:
@@ -80,17 +98,20 @@ def _config(thread_id: str) -> dict[str, Any]:
 
 @maybe_trace("run-agent-query")
 async def run_query(
-    query: str,
+    query: str = "",
     *,
+    service_order_id: str | None = None,
     thread_id: str | None = None,
     resume: bool = False,
 ) -> dict[str, Any]:
+    """Run the agents on a service order — by id (preferred: the record is
+    fetched first) or, as a fallback, on a text description of it."""
     graph = get_graph()
     thread_id = thread_id or str(uuid.uuid4())
     session_id.set(thread_id)  # LiteLLM logs this as the session on every call of this run
-    attach_metadata(thread_id=thread_id, resume=resume)
+    attach_metadata(thread_id=thread_id, resume=resume, service_order_id=service_order_id)
     config = _config(thread_id)
-    key = idempotency_key(f"{thread_id}:{query}")
+    key = idempotency_key(f"{thread_id}:{service_order_id or query}")
 
     if not resume and already_processed(key):
         snapshot = await graph.aget_state(config)
@@ -117,7 +138,10 @@ async def run_query(
                 f"Thread {thread_id} is paused mid-run (next={list(snapshot.next)}) — "
                 "use --resume, not a fresh query, or you will restart instead of continue."
             )
-        result = await graph.ainvoke(_initial_state(query, thread_id), config)
+        service_order = await fetch_service_order(service_order_id) if service_order_id else None
+        result = await graph.ainvoke(
+            _initial_state(thread_id, query, service_order_id, service_order), config
+        )
 
     snapshot = await graph.aget_state(config)
     paused = bool(snapshot.next)
@@ -133,20 +157,8 @@ async def run_query(
 
 
 async def _cli(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the agent graph for a query.")
-    parser.add_argument("query", nargs="?", help="User query (State['query']).")
-    parser.add_argument(
-        "--sample",
-        dest="sample",
-        default=None,
-        metavar="NAME",
-        help=f"Named sample query instead of typing one. Known: {', '.join(sorted(SAMPLES))}.",
-    )
-    parser.add_argument(
-        "--list-samples",
-        action="store_true",
-        help="Print named sample queries and exit.",
-    )
+    parser = argparse.ArgumentParser(description="Run the agent graph for a service order.")
+    parser.add_argument("service_order_id", nargs="?", help="Service order id, e.g. SO-1003.")
     parser.add_argument("--thread-id", dest="thread_id", default=None)
     parser.add_argument(
         "--resume",
@@ -155,19 +167,14 @@ async def _cli(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.list_samples:
-        print(format_samples())
-        return 0
-
     if args.resume and not args.thread_id:
         parser.error("--resume requires --thread-id")
+    if not args.resume and not args.service_order_id:
+        parser.error("a service order id is required unless --resume")
 
-    try:
-        query = resolve_query(query=args.query, sample=args.sample, resume=args.resume)
-    except (KeyError, ValueError) as exc:
-        parser.error(str(exc))
-
-    out = await run_query(query, thread_id=args.thread_id, resume=args.resume)
+    out = await run_query(
+        service_order_id=args.service_order_id, thread_id=args.thread_id, resume=args.resume
+    )
     print(json.dumps(out, default=str, indent=2))
     return 0
 

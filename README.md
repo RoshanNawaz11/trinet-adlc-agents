@@ -1,23 +1,28 @@
 # trinet-agents
 
-A LangGraph multi-agent pipeline that takes a free-text request, looks up data through MCP tools,
-plans the work, and runs two Claude Skills (summarize, classify). It ends in a status of `done`
-or `needs_review`, and pauses for a human before the final `aggregate` step.
+A LangGraph multi-agent pipeline that processes WSE termination service orders. A supervisor
+Orchestrator routes each order through specialist agents, pauses for a person when an agent
+flags an issue, and ends by preparing the final payment package for a person to post.
 
 ```
-query → orchestrator → planner → expert (summarize) → classify_gate → worker (classify) → aggregate → END
-            │                          │                                     │
-      MCP tool calls             Claude Skill                          Claude Skill
-      (optional)             (code-execution sandbox)              (code-execution sandbox)
+START → orchestrator ─┬─ manual / stop ─────────────────────▶ END
+                      ├─▶ validation ──────────┐
+                      ├─▶ compliance ──────────┤
+                      ├─▶ payroll-calculation ─┤  each returns to the orchestrator
+                      ├─▶ review (pause) ──────┘
+                      └─▶ execution ─────────────────────────▶ END
 ```
 
 | Node | What it does |
 |---|---|
-| `orchestrator` | First model call. Can call MCP tools (e.g. look up an employee) and decides whether to flag the request. |
-| `planner` | Turns the query and any MCP results into steps (`summarize`, `classify`). |
-| `expert` | Runs the `summarize` skill. |
-| `worker` | Runs the `classify` skill on the expert's output. |
-| `aggregate` | Collects results. Status is `done`, `needs_review` (any escalation) or `failed`. The graph **pauses before** this node so a person can review. |
+| `orchestrator` | Supervisor. First visit: looks the order up through MCP and decides the route (`ai` / `manual` / `stop`) and priority. Later visits: updates status, confidence and priority. |
+| `validation` | Stage 1: the order is complete and consistent with the employee record. |
+| `compliance` | Stage 2: the state's final-pay rules and due date. |
+| `payroll-calculation` | Stage 3: final pay, leave payout, deductions; checks against the payroll system. |
+| `review` | Pauses once per unresolved flag until a person confirms or declines it. |
+| `execution` | Stage 4: prepares the payment package. It never posts or writes anything. |
+
+Each agent's rules live in its Claude Skill under `src/agents/skills/<agent>/skill.md`.
 
 ## Quick start
 
@@ -26,19 +31,20 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 ```bash
 uv sync
 cp .env.example .env        # then fill it in (see "Configuration")
-uv run run_query.py         # edit QUERY at the top of the file first
+uv run run_so.py            # set SO_ID at the top of the file first
 ```
+
+The agents fetch the service order by id through the MCP server, so the MCP and GraphQL
+services must be running.
 
 Other ways to run:
 
 ```bash
-PYTHONPATH=src uv run python -m agents.runtime.worker --list-samples
-PYTHONPATH=src uv run python -m agents.runtime.worker --sample checkout
-PYTHONPATH=src uv run python -m agents.runtime.worker --thread-id <id> --resume    # continue a paused run
+PYTHONPATH=src uv run python -m agents.runtime.runner SO-1003                      # same, from the CLI
+PYTHONPATH=src uv run python -m agents.runtime.runner --thread-id <id> --resume    # continue a paused run
+uv run src/agents/runtime/server.py                                                # the HTTP API the backend calls
 uv run pytest
 ```
-
-(`main.py` is a placeholder. Use `run_query.py` or the worker CLI.)
 
 ## How the model is reached
 
@@ -72,7 +78,7 @@ agents ──LLM call + x-litellm-session-id: <thread_id>──▶ LiteLLM :4000
 - MCP tool calls are visible as `tool_use` / `tool_result` blocks inside the LLM messages. They are
   not separate spans, because the agents call the MCP server directly, not through LiteLLM.
 - The agents send the run's `thread_id` as `x-litellm-session-id` (see `session_id` in `gateway.py`
-  and `run_query` in `runtime/worker.py`) so requests from one run can be grouped.
+  and `run_query` in `runtime/runner.py`) so requests from one run can be grouped.
 - **Not captured:** graph or node spans, whole-run traces, non-LLM work. LiteLLM only sees requests
   that pass through it.
 - To get the agents' own graph traces instead, leave `LANGWATCH_DISABLED` unset and set
@@ -101,7 +107,7 @@ set -a && source .env && set +a
 litellm --config litellm_config.yaml --port 4000
 
 # 3. (optional) the MCP server, then run the agents from this repo
-uv run run_query.py
+uv run run_so.py
 ```
 
 The first time, open http://localhost:5560, create a project, and put its API key (Settings → API
@@ -151,13 +157,14 @@ return at the end of every value and causes `: command not found` errors and fai
 
 ```
 src/agents/
-  graph/          LangGraph definition (build.py), state, routing, interrupt points
-  nodes/          orchestrator, planner, expert, worker
-  skills/         skill bundles (classify, summarize), Anthropic Skills client, publishing
+  graph/          LangGraph definition (build.py), state, routing (edges.py), review pause
+  nodes/          orchestrator, validation, compliance, payroll_calculation, execution,
+                  and stage_agent.py (the runner the four stage agents share)
+  skills/         one skill bundle per agent, Anthropic Skills client, publishing
   model/          gateway.py (the one model client), policy.yaml (model per node)
   tools/          MCP client, tool-use loop (bindings.py), MCP_SERVER setting
-  runtime/        worker CLI/entrypoint, checkpointer, idempotency, sample queries
+  runtime/        runner.py (runs/resumes the graph; CLI), server.py (HTTP API),
+                  checkpointer, idempotency
   observability/  optional LangWatch SDK setup (unused when LANGWATCH_DISABLED=true)
 tests/            pytest
-run_query.py      edit QUERY and run
 ```

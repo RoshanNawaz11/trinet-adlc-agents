@@ -1,48 +1,39 @@
+"""Orchestrator — the hub. No model call: the planner decides what to run, and
+the orchestrator runs that plan.
+
+Control comes here at the start and after the planner, every agent and every
+review. Each visit it refreshes the fields the UI shows — status, flagged,
+confidence, priority — from what has been reported so far.
+
+Where the run goes next is decided by graph.edges.route_from_orchestrator.
+"""
+
 from __future__ import annotations
 
-import logging
-from pathlib import Path
+from typing import Any
 
+from agents.graph.edges import AGENTS, next_step
+from agents.graph.interrupts import pending_flag
 from agents.graph.states import State
-from agents.model.gateway import MissingAPIKeyError, ModelGateway, get_default_gateway
-from agents.tools.bindings import complete_with_mcp_tools
-from json_utils import JSONParseError, extract_json
-from prompting import render_prompt
 
-logger = logging.getLogger(__name__)
-
-_DIR = Path(__file__).parent
-SYSTEM_PROMPT = (_DIR / "prompts" / "system.txt").read_text()
-PROMPT_PATH = _DIR / "prompts" / "prompt.jinja"
+_RAISED = {"low": "medium", "medium": "high", "high": "high"}
 
 
-async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -> dict:
-    query = state["query"]
-    gateway = gateway or get_default_gateway()
-    logger.info("orchestrator_node starting for query=%r", query[:100])
+def orchestrator_node(state: State) -> dict[str, Any]:
+    results = state.get("results") or {}
+    if not state.get("plan"):
+        return {"status": "running"}  # first visit: off to the planner
 
-    mcp_results: list = []
-    try:
-        user_prompt = render_prompt(PROMPT_PATH, query=query)
-        raw, mcp_results = await complete_with_mcp_tools(
-            "orchestrator", system=SYSTEM_PROMPT, user=user_prompt, gateway=gateway
-        )
-        result = extract_json(raw)
-        flagged = bool(result["flagged"])
-        logger.info("orchestrator_node: model result=%s mcp_calls=%d", result, len(mcp_results))
-    except JSONParseError:
-        logger.exception("orchestrator_node: could not parse model output: %r", raw)
-        raise
-    except MissingAPIKeyError:
-        flagged = "urgent" in query.lower()
-        logger.warning(
-            "orchestrator_node: no credentials configured — falling back to "
-            "keyword check, flagged=%s", flagged,
-        )
-
-    logger.info("orchestrator_node done: flagged=%s", flagged)
-    return {
+    flagged = pending_flag(state) is not None
+    update: dict[str, Any] = {
         "flagged": flagged,
-        "status": "needs_review" if flagged else "running",
-        "mcp_results": mcp_results,
+        "status": "done" if next_step(state) is None else "needs_review" if flagged else "running",
     }
+    base = results.get("planner", {}).get("priority")
+    if base:
+        # raised one level once any agent has flagged the order, and kept raised
+        update["priority"] = _RAISED[base] if state.get("flags") else base
+    scores = [results[a]["confidence"] for a in AGENTS if "confidence" in results.get(a, {})]
+    if scores:
+        update["confidence"] = round(min(scores) * 100)
+    return update

@@ -3,13 +3,7 @@ Reads skill bundles from the skills directory and returns a list of skill names
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
-
-import yaml
-
-from agents.graph.states import Step
 
 SKILLS_DIR = Path(__file__).parent
 _SKIP_DIR_NAMES = {"__pycache__", ".cache"}
@@ -25,30 +19,6 @@ def list_bundle_names() -> list[str]:
         if any(child.name.lower() == 'skill.md' for child in path.iterdir() if child.is_file()):
             names.append(path.name)
     return names
-
-
-def _frontmatter(skill_md: str) -> dict[str, Any]:
-    if not skill_md.lstrip().startswith("---"):
-        return {}
-    parts = skill_md.split("---", 2)
-    if len(parts) < 3:
-        return {}
-    try:
-        return yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
-        return {}
-
-
-def list_skill_catalog() -> list[dict[str, str]]:
-    """Name + description for each available skill bundle, for the planner
-    prompt — pulled from each bundle's skill.md frontmatter."""
-    catalog: list[dict[str, str]] = []
-    for name in list_bundle_names():
-        skill_md = (SKILLS_DIR / name / "skill.md").read_text(encoding="utf-8")
-        meta = _frontmatter(skill_md)
-        description = str(meta.get("description") or name).strip()
-        catalog.append({"name": name, "description": description})
-    return catalog
 
 
 #read those skill files
@@ -114,29 +84,3 @@ def normalize_skill_md(files: list[tuple[str, str]], bundle_name: str) -> list[t
     rest = [(n, c) for n, c in files if n.lower() != "skill.md"]
     rest.append(("SKILL.md", content))
     return rest
-
-
-def format_for_skill(step: Step) -> str:
-    """User-message body for the published skill (same role as FAWM format_for_skill)."""
-    payload: dict[str, Any] = dict(step.get("input") or {})
-    skill = step["skill"]
-    if skill == "classify":
-        payload["content"] = content_as_text(payload.get("content"))
-    body = {
-        "step_id": step["step_id"],
-        "skill": skill,
-        "input": payload,
-    }
-    return json.dumps(body, indent=2, ensure_ascii=False)
-
-
-def content_as_text(content: object) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, dict):
-        parts = [str(content.get("summary") or "")]
-        key_points = content.get("key_points") or []
-        if isinstance(key_points, list):
-            parts.extend(str(point) for point in key_points)
-        return "\n".join(part for part in parts if part)
-    return ""

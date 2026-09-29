@@ -11,3 +11,5 @@ wheels/
 .env
 
 logs/
+# skill publishing cache (rebuilt automatically)
+src/agents/skills/.cache/

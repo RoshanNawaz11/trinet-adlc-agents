@@ -1,60 +1,52 @@
-from langgraph.graph import END, START, StateGraph
+"""The run graph — hub and spoke around the orchestrator.
 
-from agents.graph.edges import route_classify_steps, route_summarize_steps
-from agents.graph.interrupts import INTERRUPT_BEFORE
+    START → orchestrator ─┬─▶ planner ───────────────┐
+                          ├─▶ validation ────────────┤
+                          ├─▶ compliance ────────────┤  each returns to the orchestrator
+                          ├─▶ payroll-calculation ───┤
+                          ├─▶ review (pause) ────────┤
+                          ├─▶ execution ─────────────┘
+                          └─ plan finished ─────────────▶ END
+
+The planner decides which agents run and in what order; the orchestrator
+runs that plan one step at a time (graph.edges).
+"""
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import RetryPolicy
+
+from agents.graph.edges import AGENTS, route_from_orchestrator
+from agents.graph.interrupts import review_node
 from agents.graph.states import State
-from agents.nodes.expert.node import expert_node
+from agents.nodes.compliance.node import compliance_node
+from agents.nodes.execution.node import execution_node
 from agents.nodes.orchestrator.node import orchestrator_node
+from agents.nodes.payroll_calculation.node import payroll_calculation_node
 from agents.nodes.planner.node import planner_node
-from agents.nodes.worker.node import worker_node
+from agents.nodes.validation.node import validation_node
 from agents.runtime.checkpointer import get_checkpointer
 
-
-def classify_gate_node(state: State) -> dict:
-    """
-    It's a waiting room for the expert calls to be classified into the worker or aggregate node
-    """
-    return {}
+_RETRY = RetryPolicy(max_attempts=2)
 
 
-def aggregate_node(state: State) -> dict:
-    final_output = {r["step_id"]: r["output"] for r in state.get("step_results", [])}
-    errors = [r["error"] for r in state.get("step_results", []) if r.get("error")]
-    escalations = [
-        r["escalation"] for r in state.get("step_results", []) if r.get("escalation")
-    ]
-    if errors:
-        return {
-            "final_output": final_output,
-            "status": "failed",
-            "error": "; ".join(errors),
-        }
-    return {
-        "final_output": final_output,
-        "status": "needs_review" if escalations else "done",
-        "flagged": bool(escalations),
-    }
-
-
-def build_graph(checkpointer_kind: str = "memory") -> State:
+def build_graph(checkpointer_kind: str = "memory"):
     graph = StateGraph(State)
 
     graph.add_node("orchestrator", orchestrator_node)
-    graph.add_node("planner", planner_node)
-    graph.add_node("expert", expert_node)
-    graph.add_node("classify_gate", classify_gate_node)
-    graph.add_node("worker", worker_node)
-    graph.add_node("aggregate", aggregate_node)
+    graph.add_node("planner", planner_node, retry_policy=_RETRY)
+    graph.add_node("validation", validation_node, retry_policy=_RETRY)
+    graph.add_node("compliance", compliance_node, retry_policy=_RETRY)
+    graph.add_node("payroll-calculation", payroll_calculation_node, retry_policy=_RETRY)
+    graph.add_node("execution", execution_node, retry_policy=_RETRY)
+    graph.add_node("review", review_node)
 
     graph.add_edge(START, "orchestrator")
-    graph.add_edge("orchestrator", "planner")
-    graph.add_conditional_edges("planner", route_summarize_steps, ["expert", "classify_gate"])
-    graph.add_edge("expert", "classify_gate")
-    graph.add_conditional_edges("classify_gate", route_classify_steps, ["worker", "aggregate"])
-    graph.add_edge("worker", "aggregate")
-    graph.add_edge("aggregate", END)
-
-    return graph.compile(
-        checkpointer=get_checkpointer(checkpointer_kind),
-        interrupt_before=INTERRUPT_BEFORE,
+    graph.add_conditional_edges(
+        "orchestrator",
+        route_from_orchestrator,
+        ["planner", *AGENTS, "review", END],
     )
+    for node in ("planner", *AGENTS, "review"):
+        graph.add_edge(node, "orchestrator")
+
+    return graph.compile(checkpointer=get_checkpointer(checkpointer_kind))
