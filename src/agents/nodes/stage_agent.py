@@ -129,7 +129,8 @@ async def run_stage_agent(
     ]
     logger.info("[%s] done: steps=%d flags=%d mcp_calls=%d", bundle, len(steps), len(flags), len(mcp_calls))
     return {
-        "results": {bundle: {**parsed["output"], "confidence": parsed["confidence"]}},
+        "results": {bundle: {**parsed["output"], 
+        "confidence": parsed["confidence"]}},
         "steps": steps,
         "flags": flags,
       }

@@ -48,21 +48,30 @@ uv run pytest
 
 ## How the model is reached
 
-All model calls (chat, MCP tool loop, Skills, code execution) go through one client in
-`src/agents/model/gateway.py`. Which route it uses depends on `.env`:
+All model calls (chat, MCP tool loop, running Skills, code execution) go through LiteLLM. Skill
+uploads are the one exception and go straight to Cloudflare. Both clients live in
+`src/agents/model/gateway.py`.
 
-| Route | Turned on by | Path |
-|---|---|---|
-| **LiteLLM** (recommended) | `ANTHROPIC_API_KEY` **and** `LITELLM_BASE_URL` both set | agents → LiteLLM → (Cloudflare AI Gateway or Anthropic) |
-| **Cloudflare direct** | `USE_CLOUDFLARE_AIG=true` + `ANTHROPIC_GATEWAY_TOKEN` + `ANTHROPIC_BASE_URL` | agents → Cloudflare AI Gateway → Anthropic |
-| **Direct Anthropic** | only a real `ANTHROPIC_API_KEY` | agents → Anthropic |
-| none | no credentials | nodes fall back to dummy behaviour (`MissingAPIKeyError`) |
+```
+model calls:    agents ──▶ LiteLLM :4000 ──(Cloudflare token)──▶ Cloudflare AI Gateway ──(stored Anthropic key)──▶ Anthropic
+skill uploads:  agents ──────────────(Cloudflare token)──────▶ Cloudflare AI Gateway ──(stored Anthropic key)──▶ Anthropic
+```
 
-With the LiteLLM route on, `ANTHROPIC_API_KEY` in this repo only acts as the switch. Any non-empty
-value works, and the real credentials live in LiteLLM's own `.env`.
+- **Model calls** (`require_client()`) need `LITELLM_BASE_URL`. Without it, nodes fall back to
+  dummy behaviour (`MissingAPIKeyError`). `ANTHROPIC_API_KEY` is only sent to LiteLLM, so any value
+  works (or leave it out) unless LiteLLM has a master key set.
+- **Skill uploads** (`require_skills_client()`: list, create, new version) need
+  `ANTHROPIC_BASE_URL` + `ANTHROPIC_GATEWAY_TOKEN`. They skip LiteLLM because LiteLLM only proxies
+  an older Skills API (different field names) and has no endpoint for uploading a new skill
+  version. They are file uploads, not model calls, so nothing useful is lost from tracing.
+  Running a skill is a normal model call and still goes through LiteLLM.
 
-Models per node are set in `src/agents/model/policy.yaml`. The names must match model names
-configured in LiteLLM.
+Nobody here needs an Anthropic API key. The Anthropic key is stored in the Cloudflare gateway
+(BYOK: AI Gateway → `fawm-project-key` → Provider Keys), and Cloudflare adds it to every request
+that carries a valid gateway token.
+
+Models per node are set in `src/agents/model/policy.yaml`. The names must match `model_name`
+entries in LiteLLM's `litellm_config.yaml`.
 
 ## Observability
 
@@ -113,6 +122,51 @@ uv run run_so.py
 The first time, open http://localhost:5560, create a project, and put its API key (Settings → API
 Keys) in LiteLLM's `.env` as `LANGWATCH_API_KEY`. `OTEL_HEADERS` reads it from there.
 
+`set -a` exports every variable that `source .env` sets, so the `litellm` process can read them
+(`os.environ/...` in the config). Without it they stay in the shell only.
+
+### Connecting LiteLLM to the Cloudflare AI Gateway
+
+Each Claude model gets an entry in `litellm_config.yaml` that points at the gateway:
+
+```yaml
+model_list:
+  - model_name: claude-haiku-4-5-20251001          # must match policy.yaml
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_base: os.environ/ANTHROPIC_BASE_URL      # the gateway's /anthropic URL
+      api_key: os.environ/ANTHROPIC_GATEWAY_TOKEN  # LiteLLM requires a key; Cloudflare accepts the token
+      extra_headers:
+        cf-aig-authorization: os.environ/CF_AIG_AUTH_HEADER   # "Bearer <token>"
+
+litellm_settings:
+  callbacks: ["otel"]
+```
+
+And in LiteLLM's `.env`:
+
+```
+ANTHROPIC_BASE_URL=https://gateway.ai.cloudflare.com/v1/<account-id>/<gateway-id>/anthropic
+ANTHROPIC_GATEWAY_TOKEN=<cfut_... token>
+CF_AIG_AUTH_HEADER="Bearer ${ANTHROPIC_GATEWAY_TOKEN}"   # must come after ANTHROPIC_GATEWAY_TOKEN
+```
+
+When bash sources `.env`, `${VAR}` only sees variables defined on earlier lines, so keep lines that
+reference other variables (`CF_AIG_AUTH_HEADER`, `OTEL_HEADERS`) below them. To add another Claude
+model, copy the entry, change both model names, add it to `policy.yaml`, and restart LiteLLM.
+
+To check the chain without the agents:
+
+```bash
+curl http://localhost:4000/v1/messages -H "x-api-key: anything" -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{"model":"claude-haiku-4-5-20251001","max_tokens":20,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+**TLS:** LiteLLM checks Cloudflare's certificate against the public CA list. If a corporate proxy
+inspects HTTPS (e.g. Cloudflare WARP) and LiteLLM fails with `CERTIFICATE_VERIFY_FAILED`, set
+`SSL_CERT_FILE=/path/to/ca-bundle.pem` in LiteLLM's `.env`. LiteLLM ignores `SSL_CA_BUNDLE`.
+
 ## MCP tools (optional)
 
 Set `MCP_SERVER` to enable them. The tool list is discovered from the server at run time, and
@@ -131,11 +185,10 @@ Copy `.env.example` to `.env`. It is gitignored. Never commit real keys.
 
 | Variable | Needed when | Meaning |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | LiteLLM route (any value) or direct Anthropic (real key) | Switches routes, see above |
-| `LITELLM_BASE_URL` | LiteLLM route | `http://localhost:4000` |
+| `LITELLM_BASE_URL` | always | `http://localhost:4000` |
+| `ANTHROPIC_API_KEY` | LiteLLM has a master key | Sent to LiteLLM only. Optional otherwise. |
+| `ANTHROPIC_BASE_URL`, `ANTHROPIC_GATEWAY_TOKEN` | skill uploads | Cloudflare gateway URL (ending in `/anthropic`) and `cfut_...` token |
 | `LANGWATCH_DISABLED` | LiteLLM-only observability | `true` |
-| `USE_CLOUDFLARE_AIG`, `ANTHROPIC_GATEWAY_TOKEN`, `ANTHROPIC_BASE_URL` | Cloudflare direct | Cloudflare AI Gateway BYOK |
-| `SSL_CA_BUNDLE` | corporate or Cloudflare CA | Path to a CA bundle. Ignored if the file doesn't exist. |
 | `MCP_SERVER` | you want MCP tools | e.g. `http://127.0.0.1:8080/mcp` |
 | `LANGWATCH_API_KEY`, `LANGWATCH_ENDPOINT_URL` | only if agents trace themselves | SDK tracing from this repo |
 
@@ -148,6 +201,9 @@ return at the end of every value and causes `: command not found` errors and fai
 |---|---|
 | `400 Invalid model name ...` from LiteLLM | The model in `policy.yaml` isn't in `litellm_config.yaml`, or LiteLLM wasn't restarted after editing it |
 | `401 Missing Anthropic API Key` from LiteLLM | LiteLLM's `.env` lacks the Cloudflare variables (or key), or LiteLLM wasn't started with `.env` loaded |
+| `ANTHROPIC_BASE_URL / ANTHROPIC_GATEWAY_TOKEN are not set` | This repo's `.env` is missing the two skill-upload variables |
+| `401` with `AiGatewayError` / `Unauthorized` | The Cloudflare token is wrong, expired, or not valid for this gateway |
+| `ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is required for Skills API` | Something called `/v1/skills` on LiteLLM. Skill uploads should use `require_skills_client()` |
 | `Failed to export spans ... 401` in the LiteLLM terminal | Wrong or stale `LANGWATCH_API_KEY`, or CRLF line endings in LiteLLM's `.env`. Test the key directly against `http://localhost:5560/api/otel/v1/traces`: 401 means invalid, 400 means accepted |
 | Nothing in LangWatch | Look at the project that owns the key and widen the time range. Check the LiteLLM terminal for export errors. |
 | `MissingAPIKeyError` / dummy output | No credentials configured for any route |

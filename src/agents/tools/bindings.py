@@ -14,7 +14,7 @@ from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 
 from agents.model.gateway import ModelGateway
-from agents.skills.client import CODE_EXECUTION_TOOL, run_skill
+from agents.skills.client import CODE_EXECUTION_TOOL, MAX_TOKENS, run_skill
 from agents.tools.mcp_client import call_mcp_tool, list_mcp_tools, mcp_client
 from agents.tools.scopes import MCP_SERVER
 
@@ -70,7 +70,8 @@ async def complete_with_mcp_tools(
         for _ in range(MAX_ROUNDS):
             response = await client.messages.create(
                 model=config["model"],
-                max_tokens=config.get("max_tokens", 1024),
+                # skills + code execution need room; 1024 cut answers off mid-work
+                max_tokens=config.get("max_tokens", MAX_TOKENS),
                 system=system,
                 messages=messages,
                 container={"skills": [{"type": "custom", "skill_id": skill_id, "version": version_id}]},
@@ -81,6 +82,7 @@ async def complete_with_mcp_tools(
                 messages.append({"role": "assistant", "content": response.content})
                 continue
             if response.stop_reason != "tool_use":
+                logger.info("[%s] model finished: stop_reason=%s", node, response.stop_reason)
                 text = "".join(b.text for b in response.content if b.type == "text")
                 return text, tool_results
 

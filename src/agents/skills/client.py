@@ -43,7 +43,7 @@ async def find_remote_skill_by_name(
     *,
     gateway: ModelGateway | None = None,
 ) -> tuple[str, str] | None:
-    client = _resolve_gateway(gateway).require_client()
+    client = _resolve_gateway(gateway).require_skills_client()
     next_page: str | None = None
     try:
         while True:
@@ -73,7 +73,7 @@ async def publish_bundle(
     *,
     gateway: ModelGateway | None = None,
 ) -> tuple[str, str]:
-    client = _resolve_gateway(gateway).require_client()
+    client = _resolve_gateway(gateway).require_skills_client()
     upload_files = await _prefix_bundle_files(bundle_name, files)
     response = await client.skills.create(
         display_name=display_name,
@@ -95,7 +95,7 @@ async def publish_bundle_version(
     *,
     gateway: ModelGateway | None = None,
 ) -> str:
-    client = _resolve_gateway(gateway).require_client()
+    client = _resolve_gateway(gateway).require_skills_client()
     upload_files = await _prefix_bundle_files(bundle_name, files)
     response = await client.skills.versions.create(
         skill_id=claude_skill_id,
