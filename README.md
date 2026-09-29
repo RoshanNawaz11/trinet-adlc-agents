@@ -73,6 +73,9 @@ that carries a valid gateway token.
 Models per node are set in `src/agents/model/policy.yaml`. The names must match `model_name`
 entries in LiteLLM's `litellm_config.yaml`.
 
+To set up the same route for another project, see
+[docs/claude-via-litellm-cloudflare.md](docs/claude-via-litellm-cloudflare.md).
+
 ## Observability
 
 **Only LiteLLM talks to LangWatch. The agents send nothing.** Set `LANGWATCH_DISABLED=true` in `.env`.
