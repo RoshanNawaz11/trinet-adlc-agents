@@ -4,7 +4,8 @@ Hub and spoke: the planner and every agent report back to the orchestrator,
 and this decides the next hop from the state alone — no model call, so a
 run's path is predictable and auditable.
 
-    no plan yet                       → planner
+    planner has not reported yet      → planner
+    planner reported an empty plan    → END
     next plan step is execution
       and a flag is still unresolved  → review
     next unfinished plan step         → that agent
@@ -32,8 +33,12 @@ def next_step(state: State) -> str | None:
 
 
 def route_from_orchestrator(state: State) -> str:
-    if not state.get("plan"):
+    if "planner" not in (state.get("results") or {}):
         return "planner"
+    # The planner can decide this order is not a termination. That is a
+    # finished run, not a missing plan.
+    if not state.get("plan"):
+        return END
     agent = next_step(state)
     if agent is None:
         return END
