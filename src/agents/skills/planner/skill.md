@@ -40,7 +40,12 @@ Never invent a date that is not in the data.
 
 ## PLAN phase — using the priority
 
-Start from the generic plan, which fits every termination order today:
+If this order is not a termination or offboarding — a records update, a
+benefits change, or any other case the agents below do not apply to — leave
+`plan` empty. Say why in `reason`. Do not invent termination steps for it.
+
+For a termination, start from the generic plan, which fits every termination
+order today:
 
 1. `validation`
 2. `compliance`

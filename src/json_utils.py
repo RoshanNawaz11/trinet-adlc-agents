@@ -15,21 +15,40 @@ class JSONParseError(ValueError):
     pass
 
 
-def extract_json(text: str) -> object:
-    """Parse the first top-level JSON value in `text`.
+def _json_values(text: str):
+    """Each top-level JSON value in `text`, in order.
 
-    `JSONDecoder.raw_decode` stops at the end of that value, so a second
-    object or a trailing sentence does not fail with Extra data. The greedy
-    `{...}` regex used to swallow everything from the first brace to the
-    last, which is invalid JSON when the model emits two objects.
+    `raw_decode` stops at the end of a value, so a later object or a trailing
+    sentence does not fail with Extra data.
     """
     decoder = json.JSONDecoder()
-    for index, char in enumerate(text):
-        if char not in "{[":
-            continue
+    index = 0
+    while index < len(text):
+        start = next((i for i in range(index, len(text)) if text[i] in "{["), None)
+        if start is None:
+            return
         try:
-            value, _ = decoder.raw_decode(text, index)
-            return value
+            value, end = decoder.raw_decode(text, start)
         except json.JSONDecodeError:
+            index = start + 1
             continue
+        yield value
+        index = end
+
+
+def extract_json(text: str, *, key: str | None = None) -> object:
+    """Parse a JSON value out of a model response.
+
+    Without `key`, this is the first value. With `key`, it is the last object
+    that contains that key, so a quoted example earlier in the answer (an
+    empty `[]`, for instance) does not hide the real object.
+    """
+    found = None
+    for value in _json_values(text):
+        if key is None:
+            return value
+        if isinstance(value, dict) and key in value:
+            found = value
+    if found is not None:
+        return found
     raise JSONParseError(f"No JSON object/array found in model output: {text!r}")

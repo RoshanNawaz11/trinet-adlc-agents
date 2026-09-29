@@ -21,13 +21,15 @@ _RAISED = {"low": "medium", "medium": "high", "high": "high"}
 
 def orchestrator_node(state: State) -> dict[str, Any]:
     results = state.get("results") or {}
-    if not state.get("plan"):
+    if "planner" not in results:
         return {"status": "running"}  # first visit: off to the planner
 
     flagged = pending_flag(state) is not None
     update: dict[str, Any] = {
         "flagged": flagged,
-        "status": "done" if next_step(state) is None else "needs_review" if flagged else "running",
+        # An unresolved flag outranks a finished plan, so an order the planner
+        # declined to run still comes back as needing review.
+        "status": "needs_review" if flagged else "done" if next_step(state) is None else "running",
     }
     base = results.get("planner", {}).get("priority")
     if base:
