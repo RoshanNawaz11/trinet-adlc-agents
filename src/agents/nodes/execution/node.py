@@ -1,7 +1,8 @@
 """Execution Agent — Stage 4. Its rules live in skills/execution/skill.md.
 
-Prepare only: it builds the payment package a person posts afterwards. It
-raises no flags — review is already over by the time it runs.
+Prepare only: it builds the package a person acts on afterwards — the final
+payment for a termination, the setup package for an onboarding. It runs only
+after the reviewer approved the run, and raises no flags.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ _JSON_INSTRUCTION = (
     "Your final answer must be a single JSON object: "
     '{"steps": [{"title": "<what was done and the outcome>", "source": "<system or input used>", '
     '"result": "<short result>", "evidence": {<key facts>}}], '
-    '"output": {<the payment package described in your skill>}, '
+    '"output": {<the package(s) and status described in your skill>}, '
     '"confidence": <0.0-1.0, how sure you are the package is right>}. '
     "Return ONLY JSON — no preamble, no markdown fences."
 )
@@ -23,6 +24,6 @@ _JSON_INSTRUCTION = (
 async def execution_node(state: State, gateway: ModelGateway | None = None) -> dict:
     update = await run_stage_agent(
         "execution", "execution", "Execution Agent", state,
-        gateway=gateway, json_instruction=_JSON_INSTRUCTION,
+        gateway=gateway, json_instruction=_JSON_INSTRUCTION, with_tools=True,
     )
     return {**update, "final_output": update["results"]["execution"]}

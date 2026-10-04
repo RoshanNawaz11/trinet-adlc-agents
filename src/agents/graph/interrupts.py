@@ -1,40 +1,38 @@
-"""Human review before execution.
-
-The run does all its analysis first, then stops here only if it raised
-flags. Each pause is one `interrupt()` for the earliest unresolved flag; the
-reviewer's Decision comes back as the resume value. Confirm resolves the
-flag, decline keeps it open with the reason recorded. Control then returns
-to the orchestrator, which sends the run back here while any flag is still
-open and on to execution once none is.
+"""Human review before execution: one approval of the whole run, after every
+agent has finished. The reviewer sees each agent's result and every flag, and
+approves (execution runs) or rejects (the run ends).
 """
 
 from __future__ import annotations
 
 from langgraph.types import interrupt
 
-from agents.graph.states import Decision, Flag, State, step_record
+from agents.graph.states import Flag, Review, State, step_record
 
 
-def pending_flag(state: State) -> Flag | None:
-    return next((f for f in state.get("flags", []) if not f["resolved"]), None)
+def open_flags(state: State) -> list[Flag]:
+    """The flags still standing — merged duplicates are left out."""
+    return [f for f in state.get("flags", []) if not f["resolved"]]
 
 
 def review_node(state: State) -> dict:
-    flag = pending_flag(state)
-    if flag is None:
-        return {}
-
-    decision: Decision = interrupt({"flag": flag})
+    results = state.get("results") or {}
+    flags = open_flags(state)
+    decision: Review = interrupt({
+        "service_order_id": state.get("service_order_id"),
+        "summary": state.get("summary"),
+        "results": {a: r for a, r in results.items() if a != "planner"},
+        "flags": flags,
+    })
 
     action = decision["action"]
-    updated: Flag = {
-        **flag,
-        "resolved": action == "confirm",
-        "decisions": [*flag["decisions"], decision],
-    }
-    title = f"{flag['title']}: {'confirmed' if action == 'confirm' else 'declined'} by reviewer"
-    evidence = {k: v for k, v in decision.items() if k in ("value", "reason")}
+    review: Review = {"action": action, "flags_seen": [f["flag_id"] for f in flags]}
+    if decision.get("reason"):
+        review["reason"] = decision["reason"]
     return {
-        "flags": [updated],
-        "steps": [step_record(flag["stage"], "Reviewer", title, "Console", result=action, evidence=evidence)],
+        "review": review,
+        "steps": [step_record(
+            "planning", "Reviewer", f"Run {'approved' if action == 'approve' else 'rejected'} by reviewer",
+            "Console", result=action, evidence={"reason": review["reason"]} if "reason" in review else {},
+        )],
     }

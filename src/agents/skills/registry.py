@@ -4,6 +4,7 @@ Publish skill bundles to anthropic and cache skills
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -22,6 +23,10 @@ from agents.skills.loader import SKILLS_DIR, read_bundle_files
 logger = logging.getLogger(__name__)
 
 _REGISTRY_FILE = "registry.json"
+
+# Agents run in parallel; each reads registry.json, updates its entry and writes
+# it back. Without this, the last writer erases the others' new ids.
+_LOCK = asyncio.Lock()
 
 
 class CachedSkill(TypedDict):
@@ -59,6 +64,15 @@ def _content_hash(files: list[tuple[str, str]]) -> str:
  
  
 async def ensure_bundle_published(
+    bundle_name: str,
+    *,
+    gateway: ModelGateway | None = None,
+) -> tuple[str, str]:
+    async with _LOCK:
+        return await _ensure_bundle_published(bundle_name, gateway=gateway)
+
+
+async def _ensure_bundle_published(
     bundle_name: str,
     *,
     gateway: ModelGateway | None = None,

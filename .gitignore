@@ -13,3 +13,6 @@ wheels/
 logs/
 # skill publishing cache (rebuilt automatically)
 src/agents/skills/.cache/
+
+# LangGraph sqlite checkpointer
+checkpoints.db*

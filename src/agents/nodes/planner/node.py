@@ -1,9 +1,6 @@
 """Planner — builds the plan the orchestrator runs. Its rules live in
 skills/planner/skill.md.
 
-One model call with the skill, no MCP tools: the order is already fetched,
-and only the Execution agent talks to outside systems. The plan is checked in
-code before the orchestrator runs it.
 """
 
 from __future__ import annotations
@@ -24,8 +21,9 @@ logger = logging.getLogger(__name__)
 _BUNDLE = "planner"
 _JSON_INSTRUCTION = (
     "Your final answer must be a single JSON object: "
-    '{"priority": "high" | "medium" | "low", '
-    '"plan": [{"agent": "<agent name>", "task": "<one sentence>"}], or an empty list when this is not a termination, '
+    '{"work": ["<kind of work>", ...], '
+    '"priority": "high" | "medium" | "low", '
+    '"plan": [{"agent": "<agent name>", "task": "<one sentence>"}], or an empty list when the order asks for nothing, '
     '"reason": "<one short sentence>"}. '
     "Return ONLY JSON — no preamble, no markdown fences."
 )
@@ -69,17 +67,20 @@ async def planner_node(state: State, gateway: ModelGateway | None = None) -> dic
                    default=str, ensure_ascii=False),
         model=config["model"], additional_instructions=_JSON_INSTRUCTION, gateway=gateway,
     )
-    plan, priority, reason = _check(extract_json(executed["raw_response"], key="plan"))
+    parsed = extract_json(executed["raw_response"], key="plan")
+    plan, priority, reason = _check(parsed)
+    # the kinds of work the order asks for, so agents don't decide them again
+    work = [str(w) for w in parsed.get("work") or [] if w]
     logger.info("planner: plan=%s priority=%s", [s["agent"] for s in plan], priority)
 
     update: dict[str, Any] = {
         "plan": plan,
         "priority": priority,
-        "results": {_BUNDLE: {"plan": plan, "priority": priority, "reason": reason}},
+        "results": {_BUNDLE: {"work": work, "plan": plan, "priority": priority, "reason": reason}},
         "steps": [step_record(
             "planning",
             "Planner",
-            f"Planned {len(plan)} steps" if plan else "Not a termination case",
+            f"Planned {len(plan)} steps" if plan else "Nothing to run",
             "Agents",
             result=" → ".join(s["agent"] for s in plan) if plan else "No agents scheduled",
             evidence={"priority": priority, "reason": reason},
@@ -91,10 +92,10 @@ async def planner_node(state: State, gateway: ModelGateway | None = None) -> dic
             "flag_id": "planner-1",
             "type": "outOfScope",
             "stage": "planning",
-            "title": "Not a termination case",
+            "title": reason or "Nothing to run for this order",
             "detail": {
-                "reason": reason or "This order is not a termination.",
-                "impact": reason or "The termination pipeline has nothing to run for this order.",
+                "reason": reason or "The order asks for nothing the agents can do.",
+                "impact": "No agents were scheduled for this order.",
             },
             "resolved": False,
             "decisions": [],

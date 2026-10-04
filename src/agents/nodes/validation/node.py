@@ -8,4 +8,11 @@ from agents.nodes.stage_agent import run_stage_agent
 
 
 async def validation_node(state: State, gateway: ModelGateway | None = None) -> dict:
-    return await run_stage_agent("validation", "validation", "Validation Agent", state, gateway=gateway)
+    return await run_stage_agent(
+        "validation",
+        "validation",
+        "Validation Agent",
+        state,
+        gateway=gateway,
+        read_only_tools=True,
+    )

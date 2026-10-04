@@ -40,6 +40,8 @@ async def list_mcp_tools(client: Client) -> list[dict]:
             "description": t.description or "",
             "input_schema": t.inputSchema,
             "tags": tool_tags(t),
+            # the server's MCP annotation, not a name list — only these are offered for fetching
+            "read_only": bool(t.annotations and t.annotations.readOnlyHint),
         }
         for t in tools
     ]

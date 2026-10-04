@@ -128,6 +128,7 @@ async def run_skill(
     model: str,
     additional_instructions: str | None = None,
     gateway: ModelGateway | None = None,
+    max_tokens: int = MAX_TOKENS,
 ) -> dict[str, Any]:
     client = _resolve_gateway(gateway).require_client()
 
@@ -137,12 +138,12 @@ async def run_skill(
 
     logger.info(
         "run_skill: skill_id=%s version=%s model=%s max_tokens=%d input_chars=%d",
-        claude_skill_id, claude_version_id, model, MAX_TOKENS, len(user_content),
+        claude_skill_id, claude_version_id, model, max_tokens, len(user_content),
     )
 
     response = await client.messages.create(
         model=model,
-        max_tokens=MAX_TOKENS,
+        max_tokens=max_tokens,
         container={
             "skills": [
                 {
@@ -169,8 +170,8 @@ async def run_skill(
     if getattr(response, "stop_reason", None) == "max_tokens":
         logger.warning(
             "run_skill: response was CUT OFF by max_tokens=%d (skill_id=%s) — "
-            "raise MAX_TOKENS in skills/client.py if this keeps happening",
-            MAX_TOKENS, claude_skill_id,
+            "raise max_tokens for this node in model/policy.yaml if this keeps happening",
+            max_tokens, claude_skill_id,
         )
 
     raw_response = await _collect_text(response)

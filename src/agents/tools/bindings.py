@@ -24,21 +24,34 @@ MAX_ROUNDS = 5
 
 
 async def complete_with_mcp_tools(
-    node: str, system: str, user: str, gateway: ModelGateway, skill: tuple[str, str]
+    node: str,
+    system: str,
+    user: str,
+    gateway: ModelGateway,
+    skill: tuple[str, str] | None = None,
+    *,
+    read_only: bool = False,
 ) -> tuple[str, list[dict]]:
     """Return (final text, MCP calls). Calls are kept so later nodes can use the data.
 
-    `skill` is the (skill_id, version_id) from ensure_bundle_published; it is
-    attached to every model call alongside the MCP tools.
+    `skill` is the (skill_id, version_id) from ensure_bundle_published; when
+    given, it is attached to every model call alongside the MCP tools.
+    `read_only` offers only the tools the server annotates as read-only.
+    Without a skill and without tools there is nothing to run: returns ("", []).
     """
-    skill_id, version_id = skill
     config = gateway.policy.get(node, gateway.policy["default"])
-    if not MCP_SERVER:
+
+    async def without_tools() -> tuple[str, list[dict]]:
+        if skill is None:
+            return "", []
         executed = await run_skill(
-            skill_id, version_id, user,
+            *skill, user,
             model=config["model"], additional_instructions=system, gateway=gateway,
         )
         return executed["raw_response"], []
+
+    if not MCP_SERVER:
+        return await without_tools()
     client = gateway.require_client()
     tool_results: list[dict] = []
 
@@ -49,12 +62,10 @@ async def complete_with_mcp_tools(
         except Exception as exc:
             logger.warning("[%s] MCP tool listing failed (%s) — running without tools", node, exc)
             tools = []
+        if read_only:
+            tools = [t for t in tools if t["read_only"]]
         if not tools:
-            executed = await run_skill(
-                skill_id, version_id, user,
-                model=config["model"], additional_instructions=system, gateway=gateway,
-            )
-            return executed["raw_response"], tool_results
+            return await without_tools()
 
         logger.info(
             "[%s] offering MCP tools: %s",
@@ -66,6 +77,13 @@ async def complete_with_mcp_tools(
             for t in tools
         ]
         messages: list[dict] = [{"role": "user", "content": user}]
+        with_skill: dict = {}
+        if skill is not None:
+            skill_id, version_id = skill
+            with_skill = {
+                "container": {"skills": [{"type": "custom", "skill_id": skill_id, "version": version_id}]},
+            }
+            claude_tools.append(CODE_EXECUTION_TOOL)
 
         for _ in range(MAX_ROUNDS):
             response = await client.messages.create(
@@ -74,8 +92,8 @@ async def complete_with_mcp_tools(
                 max_tokens=config.get("max_tokens", MAX_TOKENS),
                 system=system,
                 messages=messages,
-                container={"skills": [{"type": "custom", "skill_id": skill_id, "version": version_id}]},
-                tools=[*claude_tools, CODE_EXECUTION_TOOL],
+                tools=claude_tools,
+                **with_skill,
             )
             if response.stop_reason == "pause_turn":
                 # the skill's code execution paused a long turn; send it back to continue
@@ -108,4 +126,24 @@ async def complete_with_mcp_tools(
                     )
             messages.append({"role": "user", "content": results})
 
-    raise RuntimeError(f"[{node}] tool loop did not finish within {MAX_ROUNDS} rounds")
+        # Out of rounds: one last call with tools switched off, so the model
+        # answers with what it found (and says what it couldn't) instead of
+        # the whole run failing.
+        logger.warning("[%s] tool loop hit %d rounds — asking for a final answer without tools", node, MAX_ROUNDS)
+        if messages[-1]["role"] == "user":
+            messages[-1]["content"] = [*messages[-1]["content"], {
+                "type": "text",
+                "text": "No more tool calls. Give your final answer now from what the tools returned; "
+                        "anything you couldn't find is not available.",
+            }]
+        response = await client.messages.create(
+            model=config["model"],
+            max_tokens=config.get("max_tokens", MAX_TOKENS),
+            system=system,
+            messages=messages,
+            tools=claude_tools,
+            tool_choice={"type": "none"},
+            **with_skill,
+        )
+        logger.info("[%s] model finished after the round limit: stop_reason=%s", node, response.stop_reason)
+        return "".join(b.text for b in response.content if b.type == "text"), tool_results

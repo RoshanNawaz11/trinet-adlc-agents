@@ -1,14 +1,23 @@
 """One factory function so `graph/build.py` never imports a specific
-checkpointer backend directly. In-memory works and is used by default;
-sqlite/redis are real dependencies (LangGraph ships both as separate
-packages) intentionally left as TODOs rather than installed, so the base
-scaffold doesn't carry deps most people won't need yet.
+checkpointer backend directly.
+
+- `sqlite` (what the runner uses): runs survive a restart, so a run paused
+  for review can be resumed by a later process. File: CHECKPOINT_DB, default
+  `checkpoints.db` in the repo root. Must be created inside a running event
+  loop; close it with `close_checkpointer`.
+- `memory`: gone when the process exits — fine for tests.
+- `redis`: for several worker processes; a TODO until it is needed.
 """
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
+
+_DEFAULT_DB = Path(__file__).resolve().parents[3] / "checkpoints.db"
 
 
 def get_checkpointer(kind: str = "memory") -> BaseCheckpointSaver:
@@ -16,10 +25,11 @@ def get_checkpointer(kind: str = "memory") -> BaseCheckpointSaver:
         return InMemorySaver()
 
     if kind == "sqlite":
-        # pip install langgraph-checkpoint-sqlite
-        # from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-        # return AsyncSqliteSaver.from_conn_string("checkpoints.db")
-        raise NotImplementedError("sqlite checkpointer: add langgraph-checkpoint-sqlite and wire it in here")
+        import aiosqlite
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        # connects lazily on first use (AsyncSqliteSaver.setup)
+        return AsyncSqliteSaver(aiosqlite.connect(os.getenv("CHECKPOINT_DB", str(_DEFAULT_DB))))
 
     if kind == "redis":
         # pip install langgraph-checkpoint-redis
@@ -28,3 +38,10 @@ def get_checkpointer(kind: str = "memory") -> BaseCheckpointSaver:
         raise NotImplementedError("redis checkpointer: add langgraph-checkpoint-redis and wire it in here")
 
     raise ValueError(f"Unknown checkpointer kind: {kind}")
+
+
+async def close_checkpointer(saver: BaseCheckpointSaver | None) -> None:
+    """Close the sqlite connection — its thread otherwise keeps the process alive."""
+    conn = getattr(saver, "conn", None)
+    if conn is not None:
+        await conn.close()

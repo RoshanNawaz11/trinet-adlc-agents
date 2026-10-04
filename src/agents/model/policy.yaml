@@ -14,3 +14,14 @@ default:
 planner:
   model: claude-haiku-4-5-20251001
   temperature: 0.0
+
+# validation runs with MCP tools (tools/bindings.py reads max_tokens here);
+# its many checks overran the 4096 default
+validation:
+  model: claude-haiku-4-5-20251001
+  max_tokens: 8192
+
+# the brief grows with every agent's result; 4096 ran out mid-answer
+orchestrator:
+  model: claude-haiku-4-5-20251001
+  max_tokens: 8192

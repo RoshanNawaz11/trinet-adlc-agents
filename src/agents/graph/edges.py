@@ -1,47 +1,20 @@
-"""Where the run goes each time control returns to the orchestrator.
-
-Hub and spoke: the planner and every agent report back to the orchestrator,
-and this decides the next hop from the state alone — no model call, so a
-run's path is predictable and auditable.
-
-    planner has not reported yet      → planner
-    planner reported an empty plan    → END
-    next plan step is execution
-      and a flag is still unresolved  → review
-    next unfinished plan step         → that agent
-    every step done                   → END
+"""The graph's nodes and the one conditional edge. The orchestrator's model
+picks every route; nodes/orchestrator/guardrails.py checks it before it
+lands in `state["route"]`.
 """
 
 from __future__ import annotations
 
 from langgraph.graph import END
 
-from agents.graph.interrupts import pending_flag
 from agents.graph.states import State
 
 # the agents a plan can use — one graph node each
 AGENTS = ("validation", "compliance", "payroll-calculation", "execution")
+# the ones that run in parallel before review; execution always runs last
+STAGE_AGENTS = AGENTS[:-1]
+NODES = ("planner", *AGENTS, "fetch", "review", END)
 
 
-def next_step(state: State) -> str | None:
-    """The agent of the first plan step that has not reported yet."""
-    results = state.get("results") or {}
-    for step in state.get("plan") or []:
-        if step["agent"] not in results:
-            return step["agent"]
-    return None
-
-
-def route_from_orchestrator(state: State) -> str:
-    if "planner" not in (state.get("results") or {}):
-        return "planner"
-    # The planner can decide this order is not a termination. That is a
-    # finished run, not a missing plan.
-    if not state.get("plan"):
-        return END
-    agent = next_step(state)
-    if agent is None:
-        return END
-    if agent == "execution" and pending_flag(state):
-        return "review"
-    return agent
+def route_from_orchestrator(state: State) -> list[str]:
+    return state["route"]  # checked by guardrails.violations in the orchestrator node

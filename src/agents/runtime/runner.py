@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from langgraph.types import Command
 from langwatch.telemetry.context import get_current_trace
 _SRC_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _SRC_ROOT not in sys.path:
@@ -21,6 +22,7 @@ if _SRC_ROOT not in sys.path:
 
 from agents.graph.build import build_graph
 from agents.model.gateway import session_id
+from agents.runtime.checkpointer import close_checkpointer
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
 from agents.tools.mcp_client import call_mcp_tool, mcp_client
 from agents.tools.scopes import MCP_SERVER
@@ -51,10 +53,19 @@ def _setup_logging() -> None:
 
 
 def get_graph():
+    """The graph, built on first use — inside the running event loop, which
+    the sqlite checkpointer needs. CHECKPOINTER=memory|sqlite (default sqlite)."""
     global _graph
     if _graph is None:
-        _graph = build_graph()
+        _graph = build_graph(os.getenv("CHECKPOINTER", "sqlite"))
     return _graph
+
+
+async def close_graph() -> None:
+    global _graph
+    if _graph is not None:
+        await close_checkpointer(_graph.checkpointer)
+        _graph = None
 
 
 async def fetch_service_order(so_id: str) -> dict[str, Any]:
@@ -81,6 +92,8 @@ def _initial_state(
         "results": {},
         "steps": [],
         "flags": [],
+        "needs": [],
+        "runs": {},
     }
     if service_order is not None:
         state |= {"service_order_id": service_order_id, "service_order": service_order}
@@ -103,9 +116,11 @@ async def run_query(
     service_order_id: str | None = None,
     thread_id: str | None = None,
     resume: bool = False,
+    decision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the agents on a service order — by id (preferred: the record is
-    fetched first) or, as a fallback, on a text description of it."""
+    fetched first) or, as a fallback, on a text description of it. On resume,
+    `decision` is the reviewer's approval or rejection of the run (graph.states.Review)."""
     graph = get_graph()
     thread_id = thread_id or str(uuid.uuid4())
     session_id.set(thread_id)  # LiteLLM logs this as the session on every call of this run
@@ -123,7 +138,7 @@ async def run_query(
         }
 
     if resume:
-        result = await graph.ainvoke(None, config)
+        result = await graph.ainvoke(Command(resume=decision) if decision else None, config)
     else:
         # Guard against restarting a thread that's mid-run instead of
         # resuming it. A queue redelivery calling this without --resume
@@ -163,18 +178,33 @@ async def _cli(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Resume a paused thread (interrupt_before aggregate).",
+        help="Resume a thread paused for review, with --approve or --reject.",
     )
+    review = parser.add_mutually_exclusive_group()
+    review.add_argument("--approve", action="store_true", help="Approve the run: execution builds the package.")
+    review.add_argument("--reject", metavar="REASON", help="Reject the run, with a reason: it ends.")
     args = parser.parse_args(argv)
 
     if args.resume and not args.thread_id:
         parser.error("--resume requires --thread-id")
+    if args.resume and not args.approve and args.reject is None:
+        parser.error("--resume requires --approve or --reject REASON")
     if not args.resume and not args.service_order_id:
         parser.error("a service order id is required unless --resume")
 
-    out = await run_query(
-        service_order_id=args.service_order_id, thread_id=args.thread_id, resume=args.resume
-    )
+    decision = None
+    if args.reject is not None:
+        decision = {"action": "reject", "reason": args.reject}
+    elif args.approve:
+        decision = {"action": "approve"}
+
+    try:
+        out = await run_query(
+            service_order_id=args.service_order_id, thread_id=args.thread_id,
+            resume=args.resume, decision=decision,
+        )
+    finally:
+        await close_graph()
     print(json.dumps(out, default=str, indent=2))
     return 0
 

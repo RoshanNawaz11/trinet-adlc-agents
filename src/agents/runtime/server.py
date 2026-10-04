@@ -1,8 +1,9 @@
 """HTTP entrypoint: the FastAPI backend submits runs here and polls their status.
 
-Runs execute as background tasks in this process. Run status lives in memory,
-like the default checkpointer, so a restart forgets in-flight and paused runs.
-Swapping `_start` for a queue enqueue later doesn't change the HTTP contract.
+Runs execute as background tasks in this process. Their state is in the
+checkpointer (sqlite by default), so a paused run survives a restart and can
+still be read and resumed; a run that was mid-flight at the restart is not
+restarted. Swapping `_start` for a queue enqueue later doesn't change the HTTP contract.
 
     uv run src/agents/runtime/server.py
 """
@@ -16,7 +17,7 @@ import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -27,7 +28,7 @@ if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
 from agents.observability.langwatch_setup import langwatch_setup
-from agents.runtime.runner import _setup_logging, get_graph, run_query
+from agents.runtime.runner import _setup_logging, close_graph, get_graph, run_query
 
 logger = logging.getLogger(__name__)
 
@@ -47,23 +48,43 @@ class RunRequest(BaseModel):
         return self
 
 
+class ReviewDecision(BaseModel):
+    """The reviewer's approval or rejection of the whole run (graph.states.Review)."""
+    action: Literal["approve", "reject"]
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def _reason_on_reject(self) -> "ReviewDecision":
+        if self.action == "reject" and not self.reason:
+            raise ValueError("a reject needs a reason")
+        return self
+
+
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
     _setup_logging()
     langwatch_setup()
     yield
+    await close_graph()
 
 
 app = FastAPI(title="trinet-agents", lifespan=_lifespan)
 
 
-async def _execute(thread_id: str, req: RunRequest | None, resume: bool) -> None:
+def _config(thread_id: str) -> dict[str, Any]:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+async def _execute(
+    thread_id: str, req: RunRequest | None, resume: bool, decision: dict[str, Any] | None = None
+) -> None:
     try:
         out = await run_query(
             req.query if req else "",
             service_order_id=req.service_order_id if req else None,
             thread_id=thread_id,
             resume=resume,
+            decision=decision,
         )
         _runs[thread_id] = {**out, "status": "paused" if out.get("paused") else "done"}
     except Exception as exc:
@@ -71,9 +92,11 @@ async def _execute(thread_id: str, req: RunRequest | None, resume: bool) -> None
         _runs[thread_id] = {"thread_id": thread_id, "status": "failed", "error": str(exc)}
 
 
-def _start(thread_id: str, req: RunRequest | None, resume: bool) -> dict[str, Any]:
+def _start(
+    thread_id: str, req: RunRequest | None, resume: bool, decision: dict[str, Any] | None = None
+) -> dict[str, Any]:
     _runs[thread_id] = {"thread_id": thread_id, "status": "running"}
-    task = asyncio.create_task(_execute(thread_id, req, resume))
+    task = asyncio.create_task(_execute(thread_id, req, resume, decision))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return _runs[thread_id]
@@ -88,23 +111,37 @@ async def create_run(req: RunRequest) -> dict[str, Any]:
 
 
 @app.post("/runs/{thread_id}/resume", status_code=202)
-async def resume_run(thread_id: str) -> dict[str, Any]:
-    if _runs.get(thread_id, {}).get("status") != "paused":
+async def resume_run(thread_id: str, decision: ReviewDecision) -> dict[str, Any]:
+    if _runs.get(thread_id, {}).get("status") == "running":
+        raise HTTPException(409, f"Run {thread_id} is running")
+    # the checkpointer, not _runs, says whether it is paused — it outlives a restart
+    snapshot = await get_graph().aget_state(_config(thread_id))
+    if not snapshot.next:
         raise HTTPException(409, f"Run {thread_id} is not paused")
-    return _start(thread_id, None, resume=True)
+    return _start(thread_id, None, resume=True, decision=decision.model_dump(exclude_none=True))
 
 
 @app.get("/runs/{thread_id}")
 async def get_run(thread_id: str) -> dict[str, Any]:
-    if thread_id not in _runs:
+    run = _runs.get(thread_id)
+    if run and run["status"] != "running":
+        return run
+    # LangGraph checkpoints after every node, so this is everything done so
+    # far — plan, steps, flags, priority, confidence — for live progress, or
+    # for a run started before a restart
+    snapshot = await get_graph().aget_state(_config(thread_id))
+    if not snapshot.values:
         raise HTTPException(404, f"Unknown run {thread_id}")
-    run = _runs[thread_id]
-    if run["status"] == "running":
-        # LangGraph checkpoints after every node, so this is everything done
-        # so far — plan, steps, flags, priority, confidence — for live progress
-        snapshot = await get_graph().aget_state({"configurable": {"thread_id": thread_id}})
+    if run:
         return {**run, "values": snapshot.values}
-    return run
+    return {
+        "thread_id": thread_id,
+        "status": "paused" if snapshot.next else "done",
+        "paused": bool(snapshot.next),
+        "next": list(snapshot.next),
+        "values": snapshot.values,
+        "pending": [i.value for i in snapshot.interrupts],
+    }
 
 
 @app.get("/health")
