@@ -16,3 +16,7 @@ src/agents/skills/.cache/
 
 # LangGraph sqlite checkpointer
 checkpoints.db*
+
+logs/
+
+pytest_cache/
