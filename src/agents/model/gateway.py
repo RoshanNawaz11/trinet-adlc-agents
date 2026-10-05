@@ -17,6 +17,7 @@ Only "LITELLM_BASE_URL isn't set" degrades gracefully (see
 
 from __future__ import annotations
 
+import hashlib
 import os
 from contextvars import ContextVar
 from pathlib import Path
@@ -45,15 +46,24 @@ def _load_policy() -> dict:
     return yaml.safe_load(POLICY_PATH.read_text())
 
 
-# Set by the runtime per run (thread_id). Sent to LiteLLM as its session id so its
-# traces can be grouped by run — LiteLLM is the only thing talking to observability.
+# Set by the runtime per run (thread_id), and by the worker pool per sub-task.
+# Sent to LiteLLM as its session id, and as a W3C traceparent: LiteLLM's otel
+# callback starts its spans from it, so every call of one run — agents and
+# workers — lands in one LangWatch trace, with the run's total cost.
 session_id: ContextVar[str | None] = ContextVar("litellm_session_id", default=None)
+
+
+def traceparent(sid: str) -> str:
+    """The same trace id and root span id for every call of a run."""
+    h = hashlib.sha256(sid.encode()).hexdigest()
+    return f"00-{h[:32]}-{h[32:48]}-01"
 
 
 async def _add_session_header(request: httpx2.Request) -> None:
     sid = session_id.get()
     if sid:
         request.headers["x-litellm-session-id"] = sid
+        request.headers["traceparent"] = traceparent(sid)
 
 
 class ModelGateway:

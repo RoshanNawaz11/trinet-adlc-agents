@@ -1,14 +1,16 @@
 # Case — <Name>
 
 Copy this file to `cases/<case>.md` to add a case type. Only use calculations
-from `workers/calculations.md` and checks from `workers/checks.md`; if something
-can't be expressed with them, add it there first.
+from `shared/calculations.md` and checks from `shared/checks.md`; if something
+can't be expressed with them, add it there first (and say which worker runs it).
 
 <What pay effect this case works out.>
 
 ```yaml
 case: <case>                  # lowercase, unique; matches the Planner's `work`
 aliases: [<other names the Planner or orders use for this work>]
+
+workers: [<the workers whose calculations and checks this case uses>]
 
 inputs:
   from_validation: [<facts>]  # previous_results.validation.cases.<case>

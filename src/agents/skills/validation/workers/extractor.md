@@ -1,19 +1,22 @@
 # Worker — Extractor
 
-Pulls facts out of the service order (name, description, tags) and the records
-in `data`. It reads; it never decides whether a fact is good enough — the
-checks do that.
+You pull the facts of each case out of the service order (name, description,
+tags). You read; you never decide whether a fact is good enough — the checkers
+do that afterwards.
+
+Input: `service_order`, `cases` (e.g. `termination`, `onboarding`).
+
+For every case: open `cases/<case>.md`, then extract the universal fields
+below and that case's `extract` fields.
 
 ## Universal fields — extract these for every case
 
 | Field | Type | How |
 |---|---|---|
 | `subject_name` | text | the employee the order is about, as named in the order — never `assignedTo`, who is the TriNet specialist handling it |
-| `subject_employee_id` | text | that employee's id, from the order or a matching record in `data`; null if none |
-| `work_state` | state | the state the employee works in, as stated in the order or the employee record; null if not stated — don't infer it from a city in another field |
+| `subject_employee_id` | text | that employee's id, as written in the order; null if none |
+| `work_state` | state | the state the employee works in, as stated in the order; null if not stated — don't infer it from a city in another field |
 | `special_instructions` | text | delivery or handling instructions in the order; `none` when there are none |
-
-Then extract each case's `extract` fields.
 
 ## Types
 
@@ -23,10 +26,17 @@ Then extract each case's `extract` fields.
 | `date` | ISO `YYYY-MM-DD`; null if absent or not a real date |
 | `state` | two-letter US state code; null if absent |
 | `choice` | exactly one of the field's `values`, following its `rule`; `unknown` when the order doesn't say |
+| `rate` | `{"amount": <number>, "basis": "hour" \| "year" \| "period"}`, e.g. "$38.00/hour" → `{"amount": 38.0, "basis": "hour"}`; null if absent |
 
 ## Rules
 
-- Only facts written in the order or the records. Never guess, and never fill a
-  field from a similar-looking one (e.g. the specialist's hire date is not the
-  subject's).
+- Only facts written in the order. Never guess, and never fill a field from a
+  similar-looking one (e.g. the specialist's hire date is not the subject's).
 - For every field you fill, keep the words it came from as evidence.
+
+## Output
+
+- `cases` — `{<case>: {<field>: <value>, ...}}`, every listed field present
+  (null when absent)
+- `evidence` — `{<case>: {<field>: "<the words in the order it came from>"}}`,
+  only for the fields you filled

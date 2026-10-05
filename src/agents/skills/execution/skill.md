@@ -69,6 +69,8 @@ the package as to-dos — they never make it `blocked`.
 ## Rules
 
 - Never invent a value; take every figure from the inputs.
+- Don't write or run code. Use the MCP tools to look things up; everything
+  else is already in your input — read it and answer directly.
 - Do not raise flags — review is already over. Report problems through the
   package `status` and `blocked_reason`.
 

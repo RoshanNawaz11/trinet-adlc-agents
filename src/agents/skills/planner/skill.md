@@ -18,6 +18,9 @@ last, after review.
 
 - `service_order` — the service order record, already fetched
 
+Don't write or run code — the order is all you need. Read it and answer
+directly.
+
 ## The agents a plan can use
 
 | agent | what it does |

@@ -1,7 +1,7 @@
 # Case — <Name>
 
 Copy this file to `cases/<case>.md` to add a case type. Only use checks from
-`workers/checks.md`; if a rule can't be expressed with their settings, add a
+`shared/checks.md`; if a rule can't be expressed with their settings, add a
 check there first.
 
 Where in the order the details are usually written: <description / fields>.

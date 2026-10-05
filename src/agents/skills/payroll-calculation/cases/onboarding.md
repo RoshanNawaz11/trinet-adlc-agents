@@ -10,6 +10,8 @@ not a problem: report them, never flag them.
 case: onboarding
 aliases: [onboarding, new hire, hire, new employee]
 
+workers: [setup]
+
 inputs:
   from_validation:            # previous_results.validation.cases.onboarding
     - subject_name

@@ -14,7 +14,7 @@ extract:                      # beyond the universal fields (subject_name, subje
   - {name: job_title,       type: text}
   - {name: employment_type, type: text}
   - {name: pay_group,       type: text}
-  - {name: pay_rate,        type: text}   # as written, with its basis, e.g. "$38.00/hour"
+  - {name: pay_rate,        type: rate}   # e.g. "$38.00/hour" → {amount: 38.0, basis: hour}
 
 checks:
   subject_exists:    {must_exist: false}

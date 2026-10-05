@@ -7,6 +7,8 @@ eligibility verification (Form I-9) and state new-hire reporting.
 case: onboarding
 aliases: [onboarding, new hire, hire, new employee]
 
+workers: [timing]
+
 facts:                        # from validation (previous_results.validation.cases.onboarding)
   - subject_name
   - work_state

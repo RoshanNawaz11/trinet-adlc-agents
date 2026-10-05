@@ -71,7 +71,8 @@ def _brief(state: State, rejected: list[dict[str, Any]]) -> str:
         "open_requests_to_execution": [n["id"] for n in open_needs if n["ask"] == "execution"],
         # true once execution has built the package after approval — then the run ends
         "execution_finished": "execution" in results,
-        "needs": state.get("needs") or [],
+        # who asked whom for what, and how it went — not the answers: routing needs only the status
+        "needs": [{k: v for k, v in n.items() if k != "answer"} for n in state.get("needs") or []],
         "flags": state.get("flags") or [],
         "review": state.get("review"),
     }

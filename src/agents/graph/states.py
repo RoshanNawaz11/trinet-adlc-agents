@@ -88,6 +88,7 @@ class State(TypedDict):
     flags: Annotated[list[Flag], merge_flags]
     needs: Annotated[list[Need], merge_needs]  # agents' requests to each other, routed by the orchestrator
     runs: Annotated[dict[str, int], operator.or_]  # agent name -> times it has run (loop guard)
+    worker_results: NotRequired[Annotated[dict[str, list[dict[str, Any]]], operator.or_]]  # agent name -> its worker tasks and their results
     route: NotRequired[list[str]]  # the orchestrator model's choice of next hops, checked by nodes/orchestrator/guardrails.py
     summary: NotRequired[str]   # the orchestrator model's latest summary of the run, for the reviewer
     final_output: NotRequired[dict[str, Any]]

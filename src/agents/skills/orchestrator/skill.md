@@ -28,7 +28,7 @@ A JSON brief of the whole run:
 - `execution_finished` — true once execution has built the package
 - `needs` — requests agents made to each other: `id`, `from_agent` (who
   asked), `ask` (who should answer), `request`, `status` (`open`, `done`,
-  `failed`), `answer`, `error`
+  `failed`), `error` — not the answers themselves: routing needs only the status
 - `flags` — issues the agents found: `flag_id`, `type`, `title`, `detail`,
   `resolved` (true only once merged into another flag)
 - `review` — the reviewer's decision on the whole run (`approve` or `reject`,
@@ -110,6 +110,8 @@ the reviewer resolves them differently. When unsure, don't merge.
 ## Rules
 
 - Never invent facts. Use only what is in the brief.
+- Don't write or run code — the brief is all you need. Read it and answer
+  directly.
 - `reason` describes the route you actually chose, in one sentence.
 
 ## Output

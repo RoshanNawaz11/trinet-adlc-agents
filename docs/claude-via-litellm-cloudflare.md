@@ -170,7 +170,12 @@ def skills_client() -> anthropic.AsyncAnthropic:
     )
 ```
 
-At the start of each run: `session_id.set(<run id>)`. Then call Claude as usual:
+At the start of each run: `session_id.set(<run id>)`. Then call Claude as usual.
+
+To get **one LangWatch trace per run** (and its total cost), also send a W3C `traceparent` derived
+from the run id on every call — LiteLLM's otel callback starts its spans from it; the session id
+alone doesn't group anything in LangWatch. trinet_agents does this in `gateway.py`
+(`traceparent()`), and carries the run id to its worker processes with each sub-task.
 
 ```python
 client = model_client()
