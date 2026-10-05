@@ -124,13 +124,14 @@ async def resume_run(thread_id: str, decision: ReviewDecision) -> dict[str, Any]
 @app.get("/runs/{thread_id}")
 async def get_run(thread_id: str) -> dict[str, Any]:
     run = _runs.get(thread_id)
-    if run and run["status"] != "running":
+    # A finished payload already carries its values. A running or failed run
+    # does not: those live in the checkpointer, written after every node.
+    if run and run["status"] not in ("running", "failed") and "values" in run:
         return run
-    # LangGraph checkpoints after every node, so this is everything done so
-    # far — plan, steps, flags, priority, confidence — for live progress, or
-    # for a run started before a restart
     snapshot = await get_graph().aget_state(_config(thread_id))
     if not snapshot.values:
+        if run:
+            return run
         raise HTTPException(404, f"Unknown run {thread_id}")
     if run:
         return {**run, "values": snapshot.values}
