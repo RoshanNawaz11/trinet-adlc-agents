@@ -27,6 +27,7 @@ _SRC_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
+from agents.graph.pipeline import with_pipeline
 from agents.observability.langwatch_setup import langwatch_setup
 from agents.runtime.runner import _setup_logging, close_graph, get_graph, run_query
 
@@ -75,6 +76,13 @@ def _config(thread_id: str) -> dict[str, Any]:
     return {"configurable": {"thread_id": thread_id}}
 
 
+def _publish(payload: dict[str, Any]) -> dict[str, Any]:
+    """Every payload the console reads carries the pipeline stages."""
+    if isinstance(payload.get("values"), dict):
+        return {**payload, "values": with_pipeline(payload["values"])}
+    return payload
+
+
 async def _execute(
     thread_id: str, req: RunRequest | None, resume: bool, decision: dict[str, Any] | None = None
 ) -> None:
@@ -86,7 +94,7 @@ async def _execute(
             resume=resume,
             decision=decision,
         )
-        _runs[thread_id] = {**out, "status": "paused" if out.get("paused") else "done"}
+        _runs[thread_id] = _publish({**out, "status": "paused" if out.get("paused") else "done"})
     except Exception as exc:
         logger.exception("Run %s failed", thread_id)
         _runs[thread_id] = {"thread_id": thread_id, "status": "failed", "error": str(exc)}
@@ -127,22 +135,22 @@ async def get_run(thread_id: str) -> dict[str, Any]:
     # A finished payload already carries its values. A running or failed run
     # does not: those live in the checkpointer, written after every node.
     if run and run["status"] not in ("running", "failed") and "values" in run:
-        return run
+        return _publish(run)
     snapshot = await get_graph().aget_state(_config(thread_id))
     if not snapshot.values:
         if run:
-            return run
+            return _publish(run)
         raise HTTPException(404, f"Unknown run {thread_id}")
     if run:
-        return {**run, "values": snapshot.values}
-    return {
+        return _publish({**run, "values": snapshot.values})
+    return _publish({
         "thread_id": thread_id,
         "status": "paused" if snapshot.next else "done",
         "paused": bool(snapshot.next),
         "next": list(snapshot.next),
         "values": snapshot.values,
         "pending": [i.value for i in snapshot.interrupts],
-    }
+    })
 
 
 @app.get("/health")

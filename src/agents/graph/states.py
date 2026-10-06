@@ -91,6 +91,7 @@ class State(TypedDict):
     worker_results: NotRequired[Annotated[dict[str, list[dict[str, Any]]], operator.or_]]  # agent name -> its worker tasks and their results
     route: NotRequired[list[str]]  # the orchestrator model's choice of next hops, checked by nodes/orchestrator/guardrails.py
     summary: NotRequired[str]   # the orchestrator model's latest summary of the run, for the reviewer
+    pipeline: NotRequired[list[dict[str, Any]]]  # the console's stages, in order; see graph/pipeline.py
     final_output: NotRequired[dict[str, Any]]
     error: NotRequired[str]
 

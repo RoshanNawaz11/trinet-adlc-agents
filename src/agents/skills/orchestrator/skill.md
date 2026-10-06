@@ -2,9 +2,9 @@
 name: orchestrator
 description: >
   Use this skill when the Orchestrator agent receives the current state of a
-  service-order run. Decides which nodes run next (several can run in
-  parallel), when the run is ready for its final human review, which
-  duplicate flags to merge, and which unanswerable requests to give up on.
+  service-order run. Decides which nodes run next, in pipeline order, when the
+  run is ready for its final human review, which duplicate flags to merge, and
+  which unanswerable requests to give up on.
 ---
 
 # SKILL: Orchestrator
@@ -37,36 +37,53 @@ A JSON brief of the whole run:
   each route and `why_rejected`. Fix exactly what they name, and don't repeat
   any of them.
 
+## The pipeline
+
+The console shows the work as four stages, one after another, with one agent
+doing each stage's tasks:
+
+| stage | node |
+|---|---|
+| 1. SO Validation | `validation` |
+| 2. Payroll Calculation | `payroll-calculation` |
+| 3. Audit & Review | `compliance` |
+| 4. Distribution Info | `execution` |
+
+After the four stages comes one human review of the whole run.
+
 ## The nodes
 
 | node | what it does |
 |---|---|
 | `planner` | builds the plan; always first |
 | `validation` | checks the order against the employee record; establishes the facts of the case |
-| `compliance` | the legal and regulatory rules and deadlines that apply |
+| `compliance` | audits the result against the legal and regulatory rules and deadlines that apply |
 | `payroll-calculation` | pay calculations, pay changes, payroll setup |
 | `fetch` | execution's read-only mode: answers open requests to `execution` from the external systems |
-| `review` | pauses once, at the end: a human sees every agent's result and every flag, and approves or rejects the whole run |
-| `execution` | builds the final package; only after the reviewer approves |
+| `execution` | builds the final package for the reviewer to decide on; changes nothing in any system |
+| `review` | pauses once, at the very end: a human sees every agent's result and every flag, and approves or rejects the whole run |
 | `__end__` | ends the run |
 
 ## ROUTE phase
 
 Flags never stop the run: agents finish with what they have, and every flag
-is shown at the one review at the end.
+is shown at the one review at the end. Nothing asks the human for approval
+before then.
 
 Decide in this order:
 
 1. **Planner not run yet** (`planner` is null) → `["planner"]`.
 2. **The plan is empty** → `["__end__"]` (the planner's flag says why).
-3. **Reviewed:** `review.action` is `reject` → `["__end__"]`; `approve` →
-   `["execution"]` while `execution_finished` is false, `["__end__"]` once it
-   is true.
-4. **Work that can run now**, all together in one route:
+3. **Reviewed:** `review` is `approve` or `reject` → `["__end__"]`.
+4. **Work that can run now**, in pipeline order:
    - `fetch`, when `open_requests_to_execution` is non-empty
    - each agent whose `asked` is non-empty and `waiting_on` is empty — it
      answers alongside its own work
-   - each planned agent that hasn't `finished` and whose `waiting_on` is empty
+   - the next planned agent in pipeline order (`validation`, then
+     `payroll-calculation`, then `compliance`) that hasn't `finished` and
+     whose `waiting_on` is empty. Run it only once every planned agent before
+     it in that order has finished or is waiting. Never route two stages
+     together.
    Never route an agent whose `waiting_on` is non-empty — it runs again once
    those requests are done or failed.
 5. **Stuck** — nothing in 4 can run, yet planned agents haven't finished: the
@@ -78,7 +95,10 @@ Decide in this order:
    don't keep re-running agents — fail the open needs about it and let the
    agents finish; their `missingData` flags reach the reviewer.
 7. **Every planned agent before execution has finished** and no need is
-   open → `["review"]`.
+   open, and `execution` is planned and not `execution_finished` →
+   `["execution"]`.
+8. **Execution has finished** (or isn't planned), every other planned agent
+   has finished, and no need is open → `["review"]`.
 
 Route only by the facts in the brief — `runs`, `finished`, `needs`, `review`.
 
@@ -91,11 +111,11 @@ Code checks your route against these; a route that breaks one is sent back.
 - Never route an agent that is waiting, or one whose `runs` reached
   `max_runs` — fail what it was asked instead.
 - `fetch` only when a need to `execution` is open.
-- `review` once, only when every planned agent before execution has finished
-  and no need is open. After review, only `execution` or `__end__`.
-- `execution` only after the reviewer approved.
-- `__end__` before execution only when the plan is empty or the reviewer
-  rejected the run.
+- `execution` only once every other planned agent has finished and no need is
+  open.
+- `review` once, only when every planned agent, execution included, has
+  finished and no need is open. After review, only `__end__`.
+- `__end__` before review only when the plan is empty.
 
 ## MERGE phase
 
@@ -121,4 +141,4 @@ the reviewer resolves them differently. When unsure, don't merge.
 - `fail_needs` — need ids to give up on
 - `reason` — one sentence: why this route
 - `summary` — 2-3 sentences for the reviewer: what the agents found, what
-  they flagged, and whether the result is ready to execute
+  they flagged, and whether the result is ready to accept

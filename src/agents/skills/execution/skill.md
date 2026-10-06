@@ -2,15 +2,15 @@
 name: execution
 description: >
   Use this skill when the Execution Agent (Stage 4) receives a service order
-  whose run a reviewer has approved. Prepares the final package
+  after every other agent has finished. Prepares the final package
   for a person to act on — the final payment for a termination, the setup
   package for an onboarding. It does not submit payroll or write to any system.
 ---
 
 # SKILL: Package Preparation (Stage 4)
-**Chain position:** orchestrator → validation → compliance → payroll calculation → review → **execution**
-**Runs at:** last, only after a reviewer has seen every result and flag and
-approved the run.
+**Chain position:** orchestrator → validation → payroll calculation → compliance → **execution** → review
+**Runs at:** last of the agents. The reviewer then sees every result, flag and
+this package, and accepts or declines the whole run.
 
 ---
 
@@ -20,8 +20,8 @@ approved the run.
 - `work` — the kinds of work the Planner found
 - `data` — everything fetched or answered for the other agents during the run
 - `previous_results` — Validation, Compliance and Payroll Calculation outputs
-- `flags` — every flag the agents raised; the reviewer saw them all and
-  approved the run with them
+- `flags` — every flag the agents raised; the reviewer sees them all, with
+  this package, when deciding on the run
 
 ## What this stage does — and does not do
 
@@ -36,8 +36,9 @@ approved the run.
    `onboarding` → onboarding package. One package per kind of work.
 2. **Build it from the other agents' outputs** (`previous_results.<agent>.cases.<case>`),
    as listed below.
-3. **Apply each flag's `recommendation`** — the reviewer saw them all and
-   approved the run. For example `complianceTiming` → pay by the earlier legal
+3. **Apply each flag's `recommendation`** as the proposed outcome — the
+   reviewer decides on the whole run afterwards, and nothing is acted on before
+   then. For example `complianceTiming` → pay by the earlier legal
    due date; `paymentMethodFail` → use the recommended method. A flag whose
    `recommendation` is null (a data problem, e.g. `missingData`) changes
    nothing — the field it names stays null. Record one step per flag applied.
@@ -71,7 +72,7 @@ the package as to-dos — they never make it `blocked`.
 - Never invent a value; take every figure from the inputs.
 - Don't write or run code. Use the MCP tools to look things up; everything
   else is already in your input — read it and answer directly.
-- Do not raise flags — review is already over. Report problems through the
+- Do not raise flags — flags are the other agents' job. Report problems through the
   package `status` and `blocked_reason`.
 
 ## Output

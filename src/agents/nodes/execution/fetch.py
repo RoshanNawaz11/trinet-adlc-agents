@@ -75,9 +75,12 @@ async def fetch_node(state: State, gateway: ModelGateway | None = None) -> dict[
         else:
             updated.append(_failed(need, str(a.get("error") or "Not found")))
 
+    # a lookup belongs to the stage of whoever asked for it, not to Distribution Info
+    asker = needs[0]["from_agent"]
+    stage = "payroll" if asker == "payroll-calculation" else asker
     steps = [
         step_record(
-            "execution", "Execution Agent", f"Looked up {call['tool']}", f"MCP · {call['tool']}",
+            stage, "Execution Agent (fetch)", f"Looked up {call['tool']}", f"MCP · {call['tool']}",
             result="error" if call.get("error") else "ok", evidence=call["input"], at=call["at"],
         )
         for call in calls

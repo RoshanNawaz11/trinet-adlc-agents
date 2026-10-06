@@ -1,6 +1,6 @@
-"""Human review before execution: one approval of the whole run, after every
-agent has finished. The reviewer sees each agent's result and every flag, and
-approves (execution runs) or rejects (the run ends).
+"""Human review at the end: one decision on the whole run, after every agent,
+execution included, has finished. The reviewer sees each agent's result and
+every flag, and approves or rejects the run.
 """
 
 from __future__ import annotations

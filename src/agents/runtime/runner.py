@@ -21,6 +21,7 @@ if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
 from agents.graph.build import build_graph
+from agents.graph.pipeline import PIPELINE
 from agents.model.gateway import session_id
 from agents.runtime.checkpointer import close_checkpointer
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
@@ -94,6 +95,7 @@ def _initial_state(
         "flags": [],
         "needs": [],
         "runs": {},
+        "pipeline": PIPELINE,
     }
     if service_order is not None:
         state |= {"service_order_id": service_order_id, "service_order": service_order}

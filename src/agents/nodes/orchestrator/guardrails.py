@@ -36,8 +36,8 @@ def violations(state: State, route: list[str]) -> list[str]:
         errors.append("the planner has not run yet — route to planner first")
     if "planner" in route and "planner" in results:
         errors.append("the planner already ran")
-    if review and any(n in route for n in (*STAGE_AGENTS, "fetch", "review")):
-        errors.append(f"the run was already reviewed ({review}) — only execution or __end__ can follow")
+    if review and any(n in route for n in (*STAGE_AGENTS, "fetch", "review", "execution")):
+        errors.append(f"the run was already reviewed ({review}) — only __end__ can follow")
     for agent in STAGE_AGENTS:
         if agent not in route:
             continue
@@ -54,18 +54,19 @@ def violations(state: State, route: list[str]) -> list[str]:
             errors.append("an empty plan has nothing to review — route __end__")
         if unfinished:
             errors.append(f"review comes once every agent has finished; still running: {unfinished}")
+        if "execution" in planned and "execution" not in results:
+            errors.append("review is the last step — run execution first")
         if open_needs:
             errors.append(f"review must wait until every request is answered or failed: {[n['id'] for n in open_needs]}")
     if "execution" in route:
         if "execution" not in planned:
             errors.append("execution is not in the plan")
-        if review != "approve":
-            errors.append("execution runs only after the reviewer approves the run")
+        if unfinished:
+            errors.append(f"execution comes once every other agent has finished; still running: {unfinished}")
+        if open_needs:
+            errors.append(f"execution must wait until every request is answered or failed: {[n['id'] for n in open_needs]}")
         if "execution" in results:
             errors.append("execution already ran")
-    if route == [END] and planned:
-        if not review:
-            errors.append("the run can't end before review — finish the agents, then route review")
-        elif review == "approve" and "execution" in planned and "execution" not in results:
-            errors.append("the reviewer approved — route execution")
+    if route == [END] and planned and not review:
+        errors.append("the run can't end before review — finish every agent, execution included, then route review")
     return errors
