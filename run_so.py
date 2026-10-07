@@ -60,6 +60,7 @@ async def main() -> None:
     finally:
         await close_graph()
     print(json.dumps(out, default=str, indent=2))
+    print(f"\ntrace_id: {out['trace_id']}")
 
 
 if __name__ == "__main__":

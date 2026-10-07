@@ -14,7 +14,7 @@ from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 
 from agents.model.gateway import ModelGateway
-from agents.skills.client import CODE_EXECUTION_TOOL, MAX_TOKENS, run_skill
+from agents.skills.client import CODE_EXECUTION_TOOL, MAX_TOKENS, log_container_steps, run_skill
 from agents.tools.mcp_client import call_mcp_tool, list_mcp_tools, mcp_client
 from agents.tools.scopes import MCP_SERVER
 
@@ -93,8 +93,11 @@ async def complete_with_mcp_tools(
                 system=system,
                 messages=messages,
                 tools=claude_tools,
+                # every round resends the tool schemas and earlier results; cached, they cost 10%
+                cache_control={"type": "ephemeral"},
                 **with_skill,
             )
+            log_container_steps(response, node)
             if response.stop_reason == "pause_turn":
                 # the skill's code execution paused a long turn; send it back to continue
                 messages.append({"role": "assistant", "content": response.content})
@@ -143,6 +146,7 @@ async def complete_with_mcp_tools(
             messages=messages,
             tools=claude_tools,
             tool_choice={"type": "none"},
+            cache_control={"type": "ephemeral"},
             **with_skill,
         )
         logger.info("[%s] model finished after the round limit: stop_reason=%s", node, response.stop_reason)

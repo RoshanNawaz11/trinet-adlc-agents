@@ -7,6 +7,8 @@ description: >
   exceptions) receives a task. Finds the approved rules that apply to the case
   and works out the deadlines and obligations they create. Never use it to
   establish the facts of the case, calculate pay, or execute anything.
+  Read its files with the text editor's view command only; never run bash
+  commands or write code.
 ---
 
 # Compliance

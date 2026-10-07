@@ -4,7 +4,8 @@ description: >
   Use this skill when the Planner agent receives a service order from the
   Orchestrator. Works out what the order asks for, then builds the plan: which
   specialist agents process it, in what order, and what each should focus on,
-  and sets how urgent the order is.
+  and sets how urgent the order is. Read its files with the text editor's
+  view command only; never run bash commands or write code.
 ---
 
 # SKILL: Planner
@@ -68,6 +69,9 @@ If the signals disagree, take the higher. Never invent a date that is not in the
 ## PLAN phase
 
 - Plan the agents whose role the work needs — most work needs all four.
+- A kind of work is not an agent. `plan` uses only the four agent names in the
+  table above — never `termination`, `benefits` or another kind of work. Name
+  the work inside the agent's `task` instead.
 - Each agent appears at most once, and `execution` is always the last step.
   The other agents run in parallel and ask each other for what they need —
   don't order them for dependencies.

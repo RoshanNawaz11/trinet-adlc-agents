@@ -5,6 +5,8 @@ description: >
   service-order run. Decides which nodes run next, in pipeline order, when the
   run is ready for its final human review, which duplicate flags to merge, and
   which unanswerable requests to give up on.
+  Read its files with the text editor's view command only; never run bash
+  commands or write code.
 ---
 
 # SKILL: Orchestrator

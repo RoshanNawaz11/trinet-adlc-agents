@@ -59,6 +59,11 @@ def traceparent(sid: str) -> str:
     return f"00-{h[:32]}-{h[32:48]}-01"
 
 
+def trace_id(sid: str) -> str:
+    """The run's trace id in LangWatch."""
+    return traceparent(sid).split("-")[1]
+
+
 async def _add_session_header(request: httpx2.Request) -> None:
     sid = session_id.get()
     if sid:

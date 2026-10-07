@@ -5,6 +5,8 @@ description: >
   after every other agent has finished. Prepares the final package
   for a person to act on — the final payment for a termination, the setup
   package for an onboarding. It does not submit payroll or write to any system.
+  Read its files with the text editor's view command only; never run bash
+  commands or write code.
 ---
 
 # SKILL: Package Preparation (Stage 4)

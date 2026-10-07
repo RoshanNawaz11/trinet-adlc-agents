@@ -12,7 +12,7 @@ from agents.graph.states import Flag, Need, Stage, State, step_record
 from agents.model.gateway import ModelGateway, get_default_gateway
 from agents.queue.pool import HANDLERS
 from agents.queue.subtasks import dispatch
-from agents.skills.client import run_skill
+from agents.skills.client import MAX_TOKENS, run_skill
 from agents.skills.registry import ensure_bundle_published
 from agents.tools.bindings import complete_with_mcp_tools
 from json_utils import JSONParseError, extract_json
@@ -222,6 +222,7 @@ async def run_stage_agent(
         else:
             raw = (await run_skill(
                 *skill, user, model=config["model"], additional_instructions=instruction, gateway=gateway,
+                max_tokens=config.get("max_tokens", MAX_TOKENS),
             ))["raw_response"]
         parsed = _extract(raw)
         tasks = _worker_tasks(parsed, bundle)

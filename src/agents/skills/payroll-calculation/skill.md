@@ -7,6 +7,8 @@ description: >
   the pay effect of the case — a final paycheck, a new employee's pay setup, a
   pay correction — and checks it against the payroll system. Never use it to
   establish the facts of the case, look up legal rules, or execute anything.
+  Read its files with the text editor's view command; run code only for the
+  short amount calculations in shared/calculations.md.
 ---
 
 # Payroll Calculation
@@ -24,9 +26,10 @@ rules is not for you.
 - The order's `assignedTo` is the TriNet specialist handling the case, not the
   employee the case is about — never use their dates or pay.
 - Never turn `unknown` or `not available` into a pass.
-- Don't write or run code. Open skill files only to read them; everything else
-  is already in your input — read it and answer directly. Do the arithmetic in
-  the step's `evidence`, where a reviewer can check it.
+- Run code only to compute amounts — one short calculation per item in
+  `shared/calculations.md`, never in your head. Don't write code to read,
+  search or parse your input or the skill files: read them directly. Put the
+  formula, its inputs and the result in the step's `evidence`.
 
 ## Files
 

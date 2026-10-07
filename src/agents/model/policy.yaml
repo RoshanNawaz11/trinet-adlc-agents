@@ -21,6 +21,15 @@ validation:
   model: claude-haiku-4-5-20251001
   max_tokens: 8192
 
+# combining worker results ran out at 4096; their workers share these entries
+compliance:
+  model: claude-haiku-4-5-20251001
+  max_tokens: 8192
+
+payroll-calculation:
+  model: claude-haiku-4-5-20251001
+  max_tokens: 8192
+
 # the brief grows with every agent's result; 4096 ran out mid-answer
 orchestrator:
   model: claude-haiku-4-5-20251001

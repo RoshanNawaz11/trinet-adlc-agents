@@ -21,9 +21,6 @@ def violations(state: State, route: list[str]) -> list[str]:
         return ["route is empty"]
     if unknown := [n for n in route if n not in NODES]:
         return [f"unknown nodes {unknown}; use {list(NODES)}"]
-    if len(route) > 1 and (alone := [n for n in route if n in _ALONE]):
-        return [f"{alone} must run alone"]
-
     results = state.get("results") or {}
     planned = {s["agent"] for s in state.get("plan") or []}
     open_needs = [n for n in state.get("needs") or [] if n["status"] == "open"]
@@ -31,6 +28,10 @@ def violations(state: State, route: list[str]) -> list[str]:
     review = (state.get("review") or {}).get("action")
     unfinished = [a for a in STAGE_AGENTS if a in planned and a not in results]
     errors: list[str] = []
+
+    # reported with everything else, so the model also learns why a node can't run at all
+    if len(route) > 1 and (alone := [n for n in route if n in _ALONE]):
+        errors.append(f"{alone} must run alone")
 
     if "planner" not in results and route != ["planner"]:
         errors.append("the planner has not run yet — route to planner first")

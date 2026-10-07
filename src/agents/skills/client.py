@@ -155,18 +155,24 @@ async def run_skill(
         },
         messages=[{"role": "user", "content": user_content}],
         tools=[CODE_EXECUTION_TOOL],
+        # each code-execution pass re-reads everything before it; cached, later passes pay 10% for it
+        cache_control={"type": "ephemeral"},
     )
 
     block_types = [getattr(b, "type", None) or (b.get("type") if isinstance(b, dict) else None)
                    for b in (getattr(response, "content", []) or [])]
     usage = getattr(response, "usage", None)
     logger.info(
-        "run_skill result: stop_reason=%s block_types=%s input_tokens=%s output_tokens=%s",
+        "run_skill result: stop_reason=%s block_types=%s input_tokens=%s output_tokens=%s "
+        "cache_write_tokens=%s cache_read_tokens=%s",
         getattr(response, "stop_reason", None),
         block_types,
         getattr(usage, "input_tokens", None),
         getattr(usage, "output_tokens", None),
+        getattr(usage, "cache_creation_input_tokens", None),
+        getattr(usage, "cache_read_input_tokens", None),
     )
+    log_container_steps(response, claude_skill_id)
     if getattr(response, "stop_reason", None) == "max_tokens":
         logger.warning(
             "run_skill: response was CUT OFF by max_tokens=%d (skill_id=%s) — "
@@ -185,6 +191,15 @@ async def run_skill(
         )
 
     return {"raw_response": raw_response}
+
+
+def log_container_steps(response: Any, label: str) -> None:
+    """Every file the model opened and command it ran in the container — skills
+    should only read files (payroll may also calculate), so stray code shows here."""
+    for block in getattr(response, "content", []) or []:
+        if getattr(block, "type", None) == "server_tool_use":
+            logger.info("[%s] container step: %s %.300s", label, block.name, block.input)
+
 
 async def _collect_text(response: Any) -> str:
     parts: list[str] = []

@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 from agents.model.gateway import get_default_gateway
-from agents.skills.client import run_skill
+from agents.skills.client import MAX_TOKENS, run_skill
 from agents.skills.registry import ensure_bundle_published
 from json_utils import JSONParseError, extract_json
 
@@ -27,6 +27,7 @@ async def run_worker_skill(bundle: str, i: dict[str, Any], json_instruction: str
     executed = await run_skill(
         skill_id, version_id, json.dumps(i, indent=2, default=str, ensure_ascii=False),
         model=config["model"], additional_instructions=json_instruction, gateway=gateway,
+        max_tokens=config.get("max_tokens", MAX_TOKENS),
     )
     return extract_json(executed["raw_response"], key=key)
 

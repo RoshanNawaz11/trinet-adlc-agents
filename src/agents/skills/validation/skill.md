@@ -6,7 +6,8 @@ description: >
   when one of Validation's workers (extractor, identity, validator) receives a
   task. Checks the order is complete and consistent with the employee record
   before any compliance or payroll work is trusted. Never use it to look up
-  rules, calculate pay, or execute anything.
+  rules, calculate pay, or execute anything. Read its files with the text
+  editor's view command only; never run bash commands or write code.
 ---
 
 # Validation
