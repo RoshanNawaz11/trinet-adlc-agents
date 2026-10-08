@@ -21,6 +21,7 @@ if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
 from agents.graph.build import build_graph
+from agents.graph.pipeline import PIPELINE
 from agents.model.gateway import session_id, trace_id
 from agents.runtime.checkpointer import close_checkpointer
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
