@@ -94,6 +94,12 @@ Each worker returns `findings`, `steps` and `flags`. Don't invent other kinds.
    available: don't ask again.
 5. **Check.** Once the rules and records are in `data`, send every worker the
    case lists under `workers:`, all in one response.
+
+   **Never send workers before step 4 is done.** Every rule and record the case
+   lists must be either in `data` or in `my_needs` as `failed`. If any is
+   neither — on your first run none are — your answer is `needs` for the
+   missing ones, not `worker_tasks`. Workers can't fetch anything: sent
+   without the rules, they can only report `not available`.
 6. **Combine.** A failed task is not a failed check: mark that worker's checks
    `not available`. Raise each problem once, and don't repeat a flag another
    agent already raised — if Validation already flagged a missing fact, don't
