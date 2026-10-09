@@ -1,9 +1,15 @@
-"""HTTP entrypoint: the FastAPI backend submits runs here and polls their status.
+"""HTTP entrypoint: FastAPI polls run status here.
 
-Runs execute as background tasks in this process. Their state is in the
-checkpointer (sqlite by default), so a paused run survives a restart and can
-still be read and resumed; a run that was mid-flight at the restart is not
-restarted. Swapping `_start` for a queue enqueue later doesn't change the HTTP contract.
+FastAPI enqueues a run onto the Redis ``service_orders`` queue
+(``run_order_workers.py``) instead of calling ``POST /runs``. This server still
+serves ``GET /runs/{thread_id}`` from the checkpointer, which is how the
+dashboard sees steps finished so far. ``POST /runs`` and ``POST /resume``
+remain for a manual run.
+
+Runs started here execute as background tasks in this process. Their state is
+in the checkpointer (sqlite by default), so a paused run survives a restart
+and can still be read and resumed; a run that was mid-flight at the restart
+is not restarted.
 
     uv run src/agents/runtime/server.py
 """
