@@ -14,9 +14,12 @@ from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 
 from agents.model.gateway import ModelGateway
-from agents.skills.client import CODE_EXECUTION_TOOL, MAX_TOKENS, log_container_steps, run_skill
+from agents.skills.client import (
+    CODE_EXECUTION_TOOL, JSON_RETRIES, MAX_TOKENS, NO_JSON_NUDGE, log_container_steps, run_skill,
+)
 from agents.tools.mcp_client import call_mcp_tool, list_mcp_tools, mcp_client
 from agents.tools.scopes import MCP_SERVER
+from json_utils import has_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,7 @@ async def complete_with_mcp_tools(
             }
             claude_tools.append(CODE_EXECUTION_TOOL)
 
+        nudges = 0
         for _ in range(MAX_ROUNDS):
             response = await client.messages.create(
                 model=config["model"],
@@ -105,7 +109,15 @@ async def complete_with_mcp_tools(
             if response.stop_reason != "tool_use":
                 logger.info("[%s] model finished: stop_reason=%s", node, response.stop_reason)
                 text = "".join(b.text for b in response.content if b.type == "text")
-                return text, tool_results
+                if has_json_object(text) or nudges >= JSON_RETRIES:
+                    return text, tool_results
+                # ended its turn without the JSON answer: ask for it, keeping what it found
+                nudges += 1
+                logger.warning("[%s] no JSON in the answer — asking again (%d/%d): %.300r",
+                               node, nudges, JSON_RETRIES, text)
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": NO_JSON_NUDGE})
+                continue
 
             messages.append({"role": "assistant", "content": response.content})
             results = []

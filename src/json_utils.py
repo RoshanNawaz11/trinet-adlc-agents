@@ -36,6 +36,11 @@ def _json_values(text: str):
         index = end
 
 
+def has_json_object(text: str) -> bool:
+    """Whether `text` holds at least one JSON object — the shape every caller expects."""
+    return any(isinstance(value, dict) for value in _json_values(text))
+
+
 def extract_json(text: str, *, key: str | None = None) -> object:
     """Parse a JSON value out of a model response.
 

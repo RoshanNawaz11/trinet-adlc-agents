@@ -13,6 +13,7 @@ from typing import Any
 
 import anthropic
 from agents.model.gateway import ModelGateway, get_default_gateway, MissingAPIKeyError
+from json_utils import has_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,15 @@ CODE_EXECUTION_TOOL = {"type": "code_execution_20250825", "name": "code_executio
 
 # The Messages API requires max_tokens. One value for every skill call.
 MAX_TOKENS = 4096
+
+# Every caller parses JSON out of the answer. The model sometimes ends its turn
+# narrating ("Let me first ask for ...") or is cut off before the JSON; it is
+# asked again this many times, with what it said, before the caller sees it.
+JSON_RETRIES = 2
+NO_JSON_NUDGE = (
+    "Your previous reply ended without the JSON answer your instructions ask for. "
+    "Do not describe what you will do — give the JSON object itself now, with nothing after it."
+)
 
 #client connection to the model gateway
 def _resolve_gateway(gateway: ModelGateway | None) -> ModelGateway:
@@ -136,6 +146,34 @@ async def run_skill(
     if additional_instructions:
         user_content = f"{additional_instructions}\n\n{input_text}"
 
+    raw_response = await _call_skill(
+        client, claude_skill_id, claude_version_id, user_content, model=model, max_tokens=max_tokens,
+    )
+    for attempt in range(1, JSON_RETRIES + 1):
+        if has_json_object(raw_response):
+            break
+        logger.warning(
+            "run_skill: no JSON in the answer (skill_id=%s) — asking again (%d/%d): %.300r",
+            claude_skill_id, attempt, JSON_RETRIES, raw_response,
+        )
+        raw_response = await _call_skill(
+            client, claude_skill_id, claude_version_id,
+            f"{user_content}\n\n<previous_reply>\n{raw_response}\n</previous_reply>\n\n{NO_JSON_NUDGE}",
+            model=model, max_tokens=max_tokens,
+        )
+    return {"raw_response": raw_response}
+
+
+async def _call_skill(
+    client: anthropic.AsyncAnthropic,
+    claude_skill_id: str,
+    claude_version_id: str,
+    user_content: str,
+    *,
+    model: str,
+    max_tokens: int,
+) -> str:
+    """One model call with the skill attached; returns its text."""
     logger.info(
         "run_skill: skill_id=%s version=%s model=%s max_tokens=%d input_chars=%d",
         claude_skill_id, claude_version_id, model, max_tokens, len(user_content),
@@ -189,8 +227,7 @@ async def run_skill(
             "(likely tool_use/code_execution output with no separate text block)",
             block_types,
         )
-
-    return {"raw_response": raw_response}
+    return raw_response
 
 
 def log_container_steps(response: Any, label: str) -> None:

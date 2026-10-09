@@ -1,7 +1,7 @@
 from json_utils import extract_json
 
-from agents.graph.edges import END, route_from_orchestrator
-from agents.nodes.orchestrator.node import orchestrator_node
+from agents.graph.edges import END
+from agents.nodes.orchestrator.guardrails import violations
 from agents.nodes.planner.node import _check
 
 
@@ -28,7 +28,9 @@ def test_empty_plan_is_a_decision_not_an_error():
     assert "records" in reason
 
 
-def test_empty_plan_ends_the_run_as_needs_review():
+# The orchestrator's model picks every route; these check the guardrails that
+# accept or refuse it for the planner's two outcomes.
+def test_an_empty_plan_can_only_end_the_run():
     state = {
         "plan": [],
         "results": {"planner": {"priority": "low", "reason": "Not a termination."}},
@@ -43,15 +45,22 @@ def test_empty_plan_ends_the_run_as_needs_review():
         }],
     }
 
-    assert route_from_orchestrator(state) is END
-    assert orchestrator_node(state)["status"] == "needs_review"
+    assert violations(state, [END]) == []
+    assert violations(state, ["review"])
+    assert violations(state, ["validation"])
 
 
-def test_a_real_plan_still_routes_to_its_first_agent():
+def test_a_real_plan_runs_its_agents_before_review():
     state = {
-        "plan": [{"agent": "validation", "task": "Check the order"}],
+        "plan": [
+            {"agent": "validation", "task": "Check the order"},
+            {"agent": "execution", "task": "Build the package"},
+        ],
         "results": {"planner": {"priority": "high"}},
         "flags": [],
     }
 
-    assert route_from_orchestrator(state) == "validation"
+    assert violations(state, ["validation"]) == []
+    assert violations(state, ["execution"])
+    assert violations(state, ["review"])
+    assert violations(state, [END])

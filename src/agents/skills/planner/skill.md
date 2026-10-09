@@ -58,7 +58,7 @@ benefits change). The kinds of work:
 Find the earliest deadline in the data — the SLA due date (`slaDueDate`), a
 final-pay due date, a start date — and compare it with today:
 
-- `high` — that deadline is today, tomorrow or already passed; the order is
+- `high` — that deadline is today or tomorrow; the order is
   marked High; or it is an involuntary termination in a state with same-day
   final-pay rules
 - `medium` — the deadline is within 7 days, or the order is marked Medium
