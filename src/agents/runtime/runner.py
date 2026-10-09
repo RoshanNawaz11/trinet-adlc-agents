@@ -23,6 +23,7 @@ if _SRC_ROOT not in sys.path:
 from agents.graph.build import build_graph
 from agents.graph.pipeline import PIPELINE
 from agents.model.gateway import session_id, trace_id
+from agents.runtime.backend import employee_name, lifecycle_event, report_progress
 from agents.runtime.checkpointer import close_checkpointer
 from agents.runtime.idempotency import already_processed, idempotency_key, mark_processed
 from agents.tools.mcp_client import call_mcp_tool, mcp_client
@@ -140,8 +141,9 @@ async def run_query(
             "values": snapshot.values,
         }
 
+    employee = None
     if resume:
-        result = await graph.ainvoke(Command(resume=decision) if decision else None, config)
+        payload: Any = Command(resume=decision) if decision else None
     else:
         # Guard against restarting a thread that's mid-run instead of
         # resuming it. A queue redelivery calling this without --resume
@@ -157,21 +159,73 @@ async def run_query(
                 "use --resume, not a fresh query, or you will restart instead of continue."
             )
         service_order = await fetch_service_order(service_order_id) if service_order_id else None
-        result = await graph.ainvoke(
-            _initial_state(thread_id, query, service_order_id, service_order), config
+        employee = employee_name(service_order)
+        payload = _initial_state(thread_id, query, service_order_id, service_order)
+        await report_progress(
+            thread_id,
+            run_status="running",
+            employee=employee,
+            extra_events=[lifecycle_event("started", employee=employee)],
+            service_order_no=service_order_id,
         )
+
+    try:
+        async for _chunk in graph.astream(payload, config, stream_mode="updates"):
+            live = await graph.aget_state(config)
+            values = live.values if isinstance(live.values, dict) else {}
+            if employee is None:
+                employee = employee_name(values.get("service_order"))
+            await report_progress(
+                thread_id,
+                update=values,
+                run_status="running",
+                employee=employee,
+                service_order_no=service_order_id,
+            )
+    except Exception as exc:
+        await report_progress(
+            thread_id,
+            run_status="failed",
+            error=str(exc),
+            employee=employee,
+            extra_events=[lifecycle_event("failed", employee=employee)],
+            service_order_no=service_order_id,
+        )
+        raise
 
     snapshot = await graph.aget_state(config)
     paused = bool(snapshot.next)
+    values = snapshot.values or {}
+    if employee is None:
+        employee = employee_name(values.get("service_order") if isinstance(values, dict) else None)
     if not paused:
         mark_processed(key)
+        verdict = values.get("status") if isinstance(values, dict) else None
+        kind = "needs_review" if verdict == "needs_review" else "completed"
+        await report_progress(
+            thread_id,
+            update=values if isinstance(values, dict) else None,
+            run_status="done",
+            employee=employee,
+            extra_events=[lifecycle_event(kind, employee=employee)],
+            service_order_no=service_order_id,
+        )
+    else:
+        await report_progress(
+            thread_id,
+            update=values if isinstance(values, dict) else None,
+            run_status="paused",
+            employee=employee,
+            extra_events=[lifecycle_event("paused", employee=employee)],
+            service_order_no=service_order_id,
+        )
 
     return {
         "thread_id": thread_id,
         "trace_id": trace_id(thread_id),
         "paused": paused,
         "next": list(snapshot.next) if paused else [],
-        "values": result if result is not None else snapshot.values,
+        "values": values,
     }
 
 
