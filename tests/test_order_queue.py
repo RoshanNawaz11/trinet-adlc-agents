@@ -1,5 +1,6 @@
 """The service-order worker records run status for FastAPI to poll."""
 
+import asyncio
 import json
 
 import pytest
@@ -78,3 +79,52 @@ async def test_a_failed_run_is_recorded_and_not_raised(
         "status": "failed",
         "error": "orchestrator blew up",
     }
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_run_is_recorded_as_failed_and_still_cancels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """arq cancels the job task at job_timeout or on shutdown."""
+    redis = FakeRedis()
+    started = asyncio.Event()
+
+    async def fake_run_query(*args, **kwargs):
+        started.set()
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(orders, "run_query", fake_run_query)
+
+    task = asyncio.create_task(
+        orders.process_service_order({"redis": redis}, {"thread_id": "run-1", "query": "q"})
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    status = json.loads(redis.values["order-run:run-1"])
+    assert status["status"] == "failed"
+    assert "job limit" in status["error"]
+    assert [item["status"] for item in redis.history] == ["running", "failed"]
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_outlasts_the_job_timeout_is_recorded_as_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The way arq enforces job_timeout: asyncio.wait_for around the job."""
+    redis = FakeRedis()
+
+    async def fake_run_query(*args, **kwargs):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(orders, "run_query", fake_run_query)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            orders.process_service_order({"redis": redis}, {"thread_id": "run-1", "query": "q"}),
+            timeout=0.05,
+        )
+
+    assert json.loads(redis.values["order-run:run-1"])["status"] == "failed"

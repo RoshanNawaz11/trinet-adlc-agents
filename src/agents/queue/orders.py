@@ -14,6 +14,7 @@ The key and the JSON shape are the contract with fastapi-backend's
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 QUEUE = "service_orders"
 STATUS_TTL_SECONDS = 7 * 24 * 3600
+JOB_TIMEOUT_SECONDS = int(os.getenv("ORDER_JOB_TIMEOUT", "3600"))
 
 
 def status_key(thread_id: str) -> str:
@@ -53,6 +55,20 @@ async def _run(ctx: dict, job: dict, *, resume: bool) -> dict[str, Any]:
             resume=resume,
             decision=job.get("decision"),
         )
+    except asyncio.CancelledError:
+        # arq cancels the job at job_timeout and on worker shutdown. That is not an
+        # Exception, so without this the status would stay "running" for good.
+        logger.warning("Service order run %s was cancelled", thread_id)
+        await write_status(
+            ctx["redis"],
+            thread_id,
+            "failed",
+            error=(
+                f"The order worker stopped this run: it hit the {JOB_TIMEOUT_SECONDS}s "
+                "job limit, or the worker was shut down. Process it again."
+            ),
+        )
+        raise
     except Exception as exc:
         logger.exception("Service order run %s failed", thread_id)
         await write_status(ctx["redis"], thread_id, "failed", error=str(exc))
@@ -87,7 +103,8 @@ class WorkerSettings:
     # One service order holds its worker until the graph finishes, including
     # while that graph waits on the sub-task pool. Keep this small.
     max_jobs = int(os.getenv("ORDER_WORKER_CONCURRENCY", "2"))
-    job_timeout = int(os.getenv("ORDER_JOB_TIMEOUT", "900"))
+    # A run with the output-validator replanning loop can pass 15 minutes.
+    job_timeout = JOB_TIMEOUT_SECONDS
     # A redelivery would re-run the model calls. A crashed job stays failed;
     # the service order can be processed again as a new run.
     max_tries = 1
