@@ -21,7 +21,7 @@ from typing import Any
 
 from agents.observability.langwatch_setup import langwatch_setup
 from agents.queue.subtasks import redis_settings
-from agents.runtime.runner import close_graph, run_query
+from agents.runtime.runner import run_query
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +79,11 @@ async def startup(ctx: dict) -> None:
     langwatch_setup()
 
 
-async def shutdown(ctx: dict) -> None:
-    await close_graph()
-
-
 class WorkerSettings:
     functions = [process_service_order, resume_service_order]
     queue_name = QUEUE
     redis_settings = redis_settings()
     on_startup = startup
-    on_shutdown = shutdown
     # One service order holds its worker until the graph finishes, including
     # while that graph waits on the sub-task pool. Keep this small.
     max_jobs = int(os.getenv("ORDER_WORKER_CONCURRENCY", "2"))

@@ -2,25 +2,22 @@
 checkpointer backend directly.
 
 - `sqlite` (what the runner uses): runs survive a restart, so a run paused
-  for review can be resumed by a later process. File: CHECKPOINT_DB, default
-  `checkpoints/checkpoints.db`. The folder is created if it is missing. Must be
-  created inside a running event loop; close it with `close_checkpointer`.
-- `memory`: gone when the process exits — fine for tests.
+  for review can be resumed by a later process. One file per run, in the
+  run's folder (runtime/run_dir.py). Must be created inside a running event
+  loop; close it with `close_checkpointer`.
+- `memory`: gone when the graph is closed — fine for tests.
 - `redis`: for several worker processes; a TODO until it is needed.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 
-_DEFAULT_DB = Path(__file__).resolve().parents[3] / "checkpoints" / "checkpoints.db"
 
-
-def get_checkpointer(kind: str = "memory") -> BaseCheckpointSaver:
+def get_checkpointer(kind: str = "memory", db_path: Path | None = None) -> BaseCheckpointSaver:
     if kind == "memory":
         return InMemorySaver()
 
@@ -28,9 +25,9 @@ def get_checkpointer(kind: str = "memory") -> BaseCheckpointSaver:
         import aiosqlite
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+        if db_path is None:
+            raise ValueError("the sqlite checkpointer needs the run's db_path")
         # connects lazily on first use (AsyncSqliteSaver.setup)
-        db_path = Path(os.getenv("CHECKPOINT_DB", str(_DEFAULT_DB)))
-        db_path.parent.mkdir(parents=True, exist_ok=True)
         return AsyncSqliteSaver(aiosqlite.connect(str(db_path)))
 
     if kind == "redis":

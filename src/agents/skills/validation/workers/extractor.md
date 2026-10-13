@@ -1,15 +1,15 @@
 # Worker — Extractor
 
-You pull the facts of each case out of the service order (name, description,
+You pull the termination facts out of the service order (name, description,
 tags). You read; you never decide whether a fact is good enough — the checkers
 do that afterwards.
 
-Input: `service_order`, `cases` (e.g. `termination`, `onboarding`).
+Input: `service_order`, `cases` (`["termination"]`).
 
-For every case: open `cases/<case>.md`, then extract the universal fields
-below and that case's `extract` fields.
+Extract the universal fields below and the `extract` fields in SKILL.md's
+Termination section.
 
-## Universal fields — extract these for every case
+## Universal fields
 
 | Field | Type | How |
 |---|---|---|
@@ -36,7 +36,7 @@ below and that case's `extract` fields.
 
 ## Output
 
-- `cases` — `{<case>: {<field>: <value>, ...}}`, every listed field present
+- `cases` — `{"termination": {<field>: <value>, ...}}`, every listed field present
   (null when absent)
-- `evidence` — `{<case>: {<field>: "<the words in the order it came from>"}}`,
+- `evidence` — `{"termination": {<field>: "<the words in the order it came from>"}}`,
   only for the fields you filled

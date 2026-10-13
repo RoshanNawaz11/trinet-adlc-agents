@@ -1,7 +1,7 @@
 """Execution Agent — Stage 4. Its rules live in skills/execution/skill.md.
 
 Prepare only: it builds the package a person acts on afterwards — the final
-payment for a termination, the setup package for an onboarding. It runs after
+payment for a termination. It runs after
 every other agent and before the final review, and raises no flags.
 """
 

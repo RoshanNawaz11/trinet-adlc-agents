@@ -1,7 +1,7 @@
 """Orchestrator — the hub. Control comes here at the start and after the
 planner, every agent, every fetch and every review. Its rules live in
 skills/orchestrator/skill.md: the model picks every route. Code only rejects
-a route that breaks a guardrail (guardrails.violations) and asks once more.
+a route that breaks a routing rule (route_rules.broken_rules) and asks once more.
 """
 
 from __future__ import annotations
@@ -12,10 +12,11 @@ from typing import Any
 
 from langgraph.graph import END
 
-from agents.graph.edges import AGENTS
-from agents.nodes.orchestrator.guardrails import violations
+from agents.graph.edges import AGENTS, OUTPUT_VALIDATOR
+from agents.nodes.orchestrator.route_rules import broken_rules
+from agents.nodes.planner.node import MAX_PLANS
 from agents.graph.interrupts import open_flags
-from agents.graph.states import Flag, State, merge_flags, merge_needs, step_record
+from agents.graph.states import Flag, State, is_finished, merge_flags, merge_needs, step_record
 from agents.model.gateway import ModelGateway, get_default_gateway
 from agents.nodes.stage_agent import MAX_RUNS
 from agents.skills.client import MAX_TOKENS, run_skill
@@ -35,7 +36,7 @@ _JSON_INSTRUCTION = (
     "Return ONLY JSON — no preamble, no markdown fences."
 )
 _RAISED = {"low": "medium", "medium": "high", "high": "high"}
-# a route that breaks a guardrail is sent back with the reason this many times in all
+# a route that breaks a routing rule is sent back with the reason this many times in all
 _ATTEMPTS = 3
 
 
@@ -58,7 +59,8 @@ def _brief(state: State, rejected: list[dict[str, Any]]) -> str:
                 "planned": a in planned,
                 "runs": runs.get(a, 0),
                 "max_runs": MAX_RUNS,
-                "finished": a in results,
+                # a result a re-plan marked `rerun` means it runs again
+                "finished": is_finished(results, a),
                 # its own requests still open — while any are, it is waiting and can't run
                 "waiting_on": [n["id"] for n in open_needs if n["from_agent"] == a],
                 # requests other agents sent it, still open — it answers them when it runs
@@ -70,7 +72,11 @@ def _brief(state: State, rejected: list[dict[str, Any]]) -> str:
         # open requests to execution — `fetch` answers these
         "open_requests_to_execution": [n["id"] for n in open_needs if n["ask"] == "execution"],
         # true once execution has built the package — the last step before review
-        "execution_finished": "execution" in results,
+        "execution_finished": is_finished(results, "execution"),
+        # the output validator's check of execution's package — null until it has checked this one
+        "output_validator": results[OUTPUT_VALIDATOR] if is_finished(results, OUTPUT_VALIDATOR) else None,
+        # true while the planner can still plan again after the validator finds issues
+        "replan_left": runs.get("planner", 0) < MAX_PLANS,
         # who asked whom for what, and how it went — not the answers: routing needs only the status
         "needs": [{k: v for k, v in n.items() if k != "answer"} for n in state.get("needs") or []],
         "flags": state.get("flags") or [],
@@ -98,14 +104,18 @@ async def _decide(state: State, gateway: ModelGateway, rejected: list[dict[str, 
 def _changes(state: State, decision: dict[str, Any]) -> tuple[list[Flag], list]:
     """The flags and needs the decision changes: merged flags, needs given up on."""
     flags: list[Flag] = []
-    open_flags = {f["flag_id"]: f for f in state.get("flags") or [] if not f["resolved"]}
+    unresolved = {f["flag_id"]: f for f in state.get("flags") or [] if not f["resolved"]}
+    # a flag kept by one group is never dropped by another, and a dropped flag
+    # can't keep others — otherwise A→B plus B→A would hide both from the reviewer
+    kept: set[str] = set()
     for group in decision.get("merge") or []:
         keep = group.get("keep") if isinstance(group, dict) else None
-        if keep not in open_flags:
+        if keep not in unresolved or keep in {f["flag_id"] for f in flags}:
             continue
+        kept.add(keep)
         for fid in group.get("drop") or []:
-            if fid in open_flags and fid != keep and fid not in {f["flag_id"] for f in flags}:
-                f = open_flags[fid]
+            if fid in unresolved and fid not in kept and fid not in {f["flag_id"] for f in flags}:
+                f = unresolved[fid]
                 flags.append({**f, "resolved": True, "decisions": [*f["decisions"], {"action": "merged", "into": keep}]})
 
     open_needs = {n["id"]: n for n in state.get("needs") or [] if n["status"] == "open"}
@@ -129,7 +139,7 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
             "flags": merge_flags(state.get("flags") or [], flags),
             "needs": merge_needs(state.get("needs") or [], needs),
         }
-        if not (errors := violations(after, route)):
+        if not (errors := broken_rules(after, route)):
             break
         logger.warning("[orchestrator] route %s rejected: %s — asking again", route, errors)
         rejected.append({"route": route, "why_rejected": errors})

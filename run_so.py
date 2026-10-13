@@ -6,7 +6,7 @@ The order is fetched through the MCP server (MCP_SERVER in .env), so the MCP
 and GraphQL services must be running. Once every agent has finished, the run
 pauses for review: each agent's result and every flag are shown here, and you
 approve (execution builds the package) or reject (the run ends). The full
-result is printed and logged to logs/agents.log.
+result is printed and logged to the run's folder in logs/.
 """
 
 import asyncio
@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from agents.observability.langwatch_setup import langwatch_setup
-from agents.runtime.runner import _setup_logging, close_graph, run_query
+from agents.runtime.runner import _setup_logging, run_query
 
 SO_ID = "SO-1003"
 
@@ -51,14 +51,11 @@ def _ask(pending: dict) -> dict:
 async def main() -> None:
     _setup_logging()
     langwatch_setup()
-    try:
-        out = await run_query(service_order_id=SO_ID)
-        while out.get("paused"):
-            pending = out["values"]["__interrupt__"][0].value
-            decision = await asyncio.to_thread(_ask, pending)
-            out = await run_query(thread_id=out["thread_id"], resume=True, decision=decision)
-    finally:
-        await close_graph()
+    out = await run_query(service_order_id=SO_ID)
+    while out.get("paused"):
+        pending = out["values"]["__interrupt__"][0].value
+        decision = await asyncio.to_thread(_ask, pending)
+        out = await run_query(thread_id=out["thread_id"], resume=True, decision=decision)
     print(json.dumps(out, default=str, indent=2))
     print(f"\ntrace_id: {out['trace_id']}")
 

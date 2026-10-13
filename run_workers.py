@@ -13,5 +13,5 @@ from agents.queue.pool import WorkerSettings
 from agents.runtime.runner import _setup_logging
 
 if __name__ == "__main__":
-    _setup_logging()
+    _setup_logging("workers")
     run_worker(WorkerSettings)

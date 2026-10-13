@@ -5,13 +5,13 @@ with the records, and don't clash with other orders or the pay calendar.
 
 Input: `case`, `service_order`, `data` (execution's answers — the employee
 record, open service orders, the pay calendar), `worker_results` (the
-extractor's result: your facts are its `cases.<case>`).
+extractor's result: your facts are its `cases.termination`).
 
-1. Open `cases/<case>.md` and `shared/checks.md`.
+1. Open `shared/checks.md`; the settings are in SKILL.md's Termination section.
 2. Fill `subject_employee_id` and `work_state` from the employee record when
    the facts don't have them (see `shared/checks.md`, Before checking).
-3. Run `sources_agree` — every case, whenever there is an employee record.
-4. Run the case's validator checks from its `checks:` — `required_fields`,
+3. Run `sources_agree` whenever there is an employee record.
+4. Run the validator checks from the Termination `checks:` — `required_fields`,
    `date_order`, `no_duplicate`, `pay_cycle` — with their settings.
 5. One step per check. A failed check raises its flag; a check whose inputs
    are missing is `not available`.
@@ -19,6 +19,6 @@ extractor's result: your facts are its `cases.<case>`).
 ## Output
 
 - `findings` — `missing_fields` (the fields `required_fields` found missing,
-  empty when none), and `pay_cycle` when the case runs that check
+  empty when none), and `pay_cycle`
 - `steps` — `[{"check", "result", "evidence"}]`
 - `flags` — `[{"type", "title", "detail"}]`

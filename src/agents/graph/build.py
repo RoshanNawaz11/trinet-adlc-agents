@@ -5,22 +5,26 @@
                           ├─▶ payroll-calculation ───┤  each returns to the orchestrator
                           ├─▶ fetch (execution) ─────┤
                           ├─▶ review (pause, once) ──┤
-                          ├─▶ execution ─────────────┘
+                          ├─▶ execution ─────────────┤
+                          ├─▶ output-validator ──────┘  issues → back to the planner, once
                           └─ plan finished ─────────────▶ END
 
 """
+
+from pathlib import Path
 
 from langgraph._internal._retry import default_retry_on
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 
-from agents.graph.edges import AGENTS, route_from_orchestrator
+from agents.graph.edges import AGENTS, OUTPUT_VALIDATOR, route_from_orchestrator
 from agents.graph.interrupts import review_node
 from agents.graph.states import State
 from agents.nodes.compliance.node import compliance_node
 from agents.nodes.execution.fetch import fetch_node
 from agents.nodes.execution.node import execution_node
 from agents.nodes.orchestrator.node import OrchestratorError, orchestrator_node
+from agents.nodes.output_validator.node import output_validator_node
 from agents.nodes.payroll_calculation.node import payroll_calculation_node
 from agents.nodes.planner.node import PlannerOutputError, planner_node
 from agents.nodes.stage_agent import AgentOutputError
@@ -41,7 +45,7 @@ def _retry_on(exc: Exception) -> bool:
 _RETRY = RetryPolicy(max_attempts=3, retry_on=_retry_on)
 
 
-def build_graph(checkpointer_kind: str = "memory"):
+def build_graph(checkpointer_kind: str = "memory", db_path: Path | None = None):
     graph = StateGraph(State)
 
     graph.add_node("orchestrator", orchestrator_node, retry_policy=_RETRY)
@@ -50,6 +54,7 @@ def build_graph(checkpointer_kind: str = "memory"):
     graph.add_node("compliance", compliance_node, retry_policy=_RETRY)
     graph.add_node("payroll-calculation", payroll_calculation_node, retry_policy=_RETRY)
     graph.add_node("execution", execution_node, retry_policy=_RETRY)
+    graph.add_node(OUTPUT_VALIDATOR, output_validator_node, retry_policy=_RETRY)
     graph.add_node("fetch", fetch_node, retry_policy=_RETRY)
     graph.add_node("review", review_node)
 
@@ -57,9 +62,9 @@ def build_graph(checkpointer_kind: str = "memory"):
     graph.add_conditional_edges(
         "orchestrator",
         route_from_orchestrator,
-        ["planner", *AGENTS, "fetch", "review", END],
+        ["planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", "review", END],
     )
-    for node in ("planner", *AGENTS, "fetch", "review"):
+    for node in ("planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", "review"):
         graph.add_edge(node, "orchestrator")
 
-    return graph.compile(checkpointer=get_checkpointer(checkpointer_kind))
+    return graph.compile(checkpointer=get_checkpointer(checkpointer_kind, db_path))

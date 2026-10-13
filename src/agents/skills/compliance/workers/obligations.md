@@ -7,8 +7,8 @@ Input: `case`, `service_order`, `facts` (including the jurisdiction), `data`
 (execution's answers — the PTO rule, the COBRA rules, federal and any state,
 and the benefits coverage).
 
-1. Open `cases/<case>.md` and `shared/checks.md`.
-2. Run the case's obligation checks from its `checks:` — `requirement`,
+1. Open `shared/checks.md`; the settings are in SKILL.md's Termination section.
+2. Run the obligation checks from the Termination `checks:` — `requirement`,
    `obligation` — with their settings.
 3. For an `obligation`, decide its `when` condition from the records (e.g.
    COBRA applies only if the employee had health coverage). No record →

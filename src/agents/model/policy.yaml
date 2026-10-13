@@ -28,6 +28,11 @@ compliance:
 
 payroll-calculation:
   model: claude-haiku-4-5-20251001
+  max_tokens: 16384           # combining four workers ran out at 8192
+
+# checks the whole package against every agent's result; 4096 ran out
+output-validator:
+  model: claude-haiku-4-5-20251001
   max_tokens: 8192
 
 # the brief grows with every agent's result; 4096 ran out mid-answer

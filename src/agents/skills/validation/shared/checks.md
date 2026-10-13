@@ -1,7 +1,7 @@
 # Checks
 
-Every check a case can use, what its settings mean, which worker runs it, and
-when it passes. A case file only names checks from this list. A check whose
+Every check, what its settings mean, which worker runs it, and when it
+passes. The settings themselves are in SKILL.md's Termination section. A check whose
 inputs are missing is `not available` — it does not fail, and it raises no
 flag of its own (the missing field is caught by `required_fields`).
 
@@ -31,13 +31,12 @@ and the record disagree, that is for `sources_agree`.
 |---|---|---|
 | `sources_agree` | every fact the order states that the record also holds (name, id, work state, hire date) matches it | `recordMismatch`, one per field |
 
-## Checks a case can add
+## Checks with settings
 
 | Check | Worker | Settings | Passes when | Flag if not |
 |---|---|---|---|---|
-| `subject_exists` | identity | `must_exist: true \| false` | `true`: a record for the subject exists in `data`. `false`: a record may or may not exist (e.g. a new hire) | `missingData` (`subject_employee_id`) |
-| `employment_status` | identity | `forbidden: [<statuses>]`, `flag` | the subject's record status is not in `forbidden` | the case's `flag` |
-| `field_equals` | identity | `field`, `expected`, `flag`, `unknown_is: fail \| pass` | the field equals `expected`; `unknown` follows `unknown_is` | the case's `flag` |
+| `subject_exists` | identity | `must_exist: true` | a record for the subject exists in `data` | `missingData` (`subject_employee_id`) |
+| `employment_status` | identity | `forbidden: [<statuses>]`, `flag` | the subject's record status is not in `forbidden` | its `flag` |
 | `required_fields` | validator | `fields: [...]` | every listed field has a value in the right format (see the extractor's types); `null` or `unknown` counts as missing | one `missingData` listing every missing field |
 | `date_order` | validator | `rule: [a, op, b, op, c, ...]` | every comparison holds (`<`, `<=`). Names starting `order.` are service-order fields, `record.` are employee-record fields, others are extracted fields | `invalidDates` |
 | `no_duplicate` | validator | `order_type`, `match_on` | no other **open** service order with this `caseType` for the same subject (matched on `match_on`) | `duplicateSO` |

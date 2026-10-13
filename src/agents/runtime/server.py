@@ -35,7 +35,7 @@ if _SRC_ROOT not in sys.path:
 
 from agents.graph.pipeline import with_pipeline
 from agents.observability.langwatch_setup import langwatch_setup
-from agents.runtime.runner import _setup_logging, close_graph, get_graph, run_query
+from agents.runtime.runner import _setup_logging, open_graph, run_query
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +72,15 @@ async def _lifespan(_: FastAPI):
     _setup_logging()
     langwatch_setup()
     yield
-    await close_graph()
 
 
 app = FastAPI(title="trinet-agents", lifespan=_lifespan)
 
 
-def _config(thread_id: str) -> dict[str, Any]:
-    return {"configurable": {"thread_id": thread_id}}
+async def _snapshot(thread_id: str):
+    """The run's latest state, read from its own checkpointer."""
+    async with open_graph(thread_id) as graph:
+        return await graph.aget_state({"configurable": {"thread_id": thread_id}})
 
 
 def _publish(payload: dict[str, Any]) -> dict[str, Any]:
@@ -129,7 +130,7 @@ async def resume_run(thread_id: str, decision: ReviewDecision) -> dict[str, Any]
     if _runs.get(thread_id, {}).get("status") == "running":
         raise HTTPException(409, f"Run {thread_id} is running")
     # the checkpointer, not _runs, says whether it is paused — it outlives a restart
-    snapshot = await get_graph().aget_state(_config(thread_id))
+    snapshot = await _snapshot(thread_id)
     if not snapshot.next:
         raise HTTPException(409, f"Run {thread_id} is not paused")
     return _start(thread_id, None, resume=True, decision=decision.model_dump(exclude_none=True))
@@ -142,7 +143,7 @@ async def get_run(thread_id: str) -> dict[str, Any]:
     # does not: those live in the checkpointer, written after every node.
     if run and run["status"] not in ("running", "failed") and "values" in run:
         return _publish(run)
-    snapshot = await get_graph().aget_state(_config(thread_id))
+    snapshot = await _snapshot(thread_id)
     if not snapshot.values:
         if run:
             return _publish(run)
