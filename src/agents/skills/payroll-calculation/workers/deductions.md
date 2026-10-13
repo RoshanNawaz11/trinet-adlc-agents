@@ -7,8 +7,9 @@ Input: `case`, `service_order`, `facts`, `data` (execution's answers — the
 employee's deductions for this pay, benefits status codes, active garnishment
 orders and their withholding rules).
 
-1. Open `cases/<case>.md`, `shared/calculations.md` and `shared/checks.md`.
-2. **Benefits eligibility first** — the case's `one_outcome` check on
+1. Open `shared/calculations.md` and `shared/checks.md`; the settings are in
+   SKILL.md's Termination section.
+2. **Benefits eligibility first** — the `one_outcome` check on
    `benefits_eligible`. If the records allow both outcomes, raise its flag with
    each option's effect on deductions, and work out both.
 3. Calculate `deductions` (benefit deductions only if eligible),

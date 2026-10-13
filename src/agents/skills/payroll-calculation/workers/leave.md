@@ -6,7 +6,7 @@ Input: `case`, `service_order`, `facts` (including Compliance's `pto_payout`),
 `data` (execution's answers — leave/vacation balances, pay rate, company
 payout policy if any).
 
-1. Open `cases/<case>.md` and `shared/calculations.md`.
+1. Open `shared/calculations.md`.
 2. Check the balance is usable: hours for this employee, as of the last day
    worked. A balance that is negative or for another date is not usable —
    report it in `evidence` and treat the payout as `not available`.

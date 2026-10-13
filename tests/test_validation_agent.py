@@ -4,6 +4,7 @@ these run without an API key or Redis."""
 from __future__ import annotations
 
 import json
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -98,7 +99,10 @@ async def test_run_1_extracts_then_asks_execution_for_records(monkeypatch):
     # the extractor got the order without the agent copying it
     [[task]] = fake.dispatched
     assert task["kind"] == "validation.extract"
-    assert task["input"] == {"cases": ["termination"], "service_order": ORDER, "data": [], "worker_results": []}
+    assert task["input"] == {
+        "cases": ["termination"], "today": date.today().isoformat(),
+        "service_order": ORDER, "data": [], "worker_results": [],
+    }
     # the agent saw the extractor's result on its second call
     assert "worker_results" not in fake.inputs[0]
     assert fake.inputs[1]["worker_results"][0]["status"] == "done"

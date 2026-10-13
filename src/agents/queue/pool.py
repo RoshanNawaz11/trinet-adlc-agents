@@ -23,7 +23,6 @@ from agents.workers.payroll_calculation.deductions import deductions
 from agents.workers.payroll_calculation.earnings import earnings
 from agents.workers.payroll_calculation.leave import leave
 from agents.workers.payroll_calculation.reconcile import reconcile
-from agents.workers.payroll_calculation.setup import setup
 from agents.workers.validation.extractor import extract
 from agents.workers.validation.identity import identity
 from agents.workers.validation.validator import validator
@@ -42,7 +41,6 @@ HANDLERS = {
     "payroll-calculation.leave": leave,
     "payroll-calculation.deductions": deductions,
     "payroll-calculation.reconcile": reconcile,
-    "payroll-calculation.setup": setup,
 }
 
 

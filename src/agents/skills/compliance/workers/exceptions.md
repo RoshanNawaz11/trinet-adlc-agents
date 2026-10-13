@@ -6,8 +6,8 @@ active leave of absence or a garnishment on the employee.
 Input: `case`, `service_order`, `facts`, `data` (execution's answers — leave
 of absence, garnishments).
 
-1. Open `cases/<case>.md` and `shared/checks.md`.
-2. Run the case's `exception` checks from its `checks:` with their settings.
+1. Open `shared/checks.md`; the settings are in SKILL.md's Termination section.
+2. Run the `exception` check from the Termination `checks:` with their settings.
 3. Look only at items for this employee that are active on the termination
    date — or, without one, that the record marks as active. Ended leave or a
    released garnishment is not an exception.

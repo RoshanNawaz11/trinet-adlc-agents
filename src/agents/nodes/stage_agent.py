@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from typing import Any
 
 from agents.graph.states import Flag, Need, Stage, State, step_record
@@ -33,7 +34,7 @@ PROVIDERS = {
                  "leave and garnishment records",
     "compliance": "rules, deadlines and obligations that apply to the case — e.g. the "
                   "final-pay due date, the PTO payout rule, the I-9 deadline",
-    "payroll-calculation": "pay answers — amounts, pay setup, first pay date",
+    "payroll-calculation": "pay answers — final pay amounts, deductions, net pay",
 }
 
 JSON_INSTRUCTION = (
@@ -75,6 +76,15 @@ _ANSWER = (
 )
 
 
+_RERUN = (
+    "\n\nYou ran before, and the output was found wrong: your previous answer is "
+    "`previous_results.{bundle}` (marked `rerun`), your workers' results are still in "
+    "`worker_results`, and `task` says what was wrong. Fix only that — send only the "
+    "workers needed to fix it, keep the rest of your previous answer — then give your "
+    "full final answer."
+)
+
+
 class AgentOutputError(ValueError):
     pass
 
@@ -87,6 +97,8 @@ def _fetched(state: State) -> list[dict]:
 def _input(state: State, bundle: str, can_ask: bool, requests: list[Need], worker_results: list[dict]) -> str:
     needs = state.get("needs") or []
     data: dict[str, Any] = {
+        # the models don't know the date; deadlines and cut-offs are compared with it
+        "today": date.today().isoformat(),
         # this agent's step in the planner's plan
         "task": next((s["task"] for s in state.get("plan") or [] if s["agent"] == bundle), ""),
         "work": (state.get("results") or {}).get("planner", {}).get("work") or [],
@@ -190,12 +202,13 @@ async def run_stage_agent(
     gateway: ModelGateway | None = None,
     json_instruction: str = JSON_INSTRUCTION,
     with_tools: bool = False,
+    asks: bool = True,
 ) -> dict[str, Any]:
     """Run one stage agent. Returns either its needs (it is waiting) or its
     result: results, steps, flags — plus answers to what others asked it."""
     gateway = gateway or get_default_gateway()
     run = (state.get("runs") or {}).get(bundle, 0) + 1
-    can_ask = not with_tools and run < MAX_RUNS
+    can_ask = asks and not with_tools and run < MAX_RUNS
     requests = [n for n in state.get("needs") or [] if n["ask"] == bundle and n["status"] == "open"]
     logger.info("[%s] run %d (can_ask=%s, requests=%d)", bundle, run, can_ask, len(requests))
 
@@ -207,6 +220,10 @@ async def run_stage_agent(
         instruction += _DELEGATE.format(kinds=", ".join(kinds))
     if requests:
         instruction += _ANSWER
+    # re-planned with a task saying what to fix (the validator just checks the new package)
+    replanned = any(s["agent"] == bundle for s in state.get("plan") or [])
+    if replanned and ((state.get("results") or {}).get(bundle) or {}).get("rerun"):
+        instruction += _RERUN.format(bundle=bundle)
     # kept across runs, so a re-run after needs are answered still has them
     worker_results = list((state.get("worker_results") or {}).get(bundle, []))
     worker_steps = []
@@ -217,11 +234,19 @@ async def run_stage_agent(
     for round_ in range(MAX_WORKER_ROUNDS + 1):
         user = _input(state, bundle, can_ask, requests, worker_results)
         if with_tools:
-            raw, calls = await complete_with_mcp_tools(bundle, instruction, user, gateway, skill)
+            raw, calls = await complete_with_mcp_tools(
+                bundle, instruction, user, gateway, skill,
+                # write tools only once the reviewer has approved the run
+                read_only=(state.get("review") or {}).get("action") != "approve",
+            )
             mcp_calls += calls
         else:
             raw = (await run_skill(
-                *skill, user, model=config["model"], additional_instructions=instruction, gateway=gateway,
+                *skill, 
+                user, 
+                model=config["model"], 
+                additional_instructions=instruction, 
+                gateway=gateway,
                 max_tokens=config.get("max_tokens", MAX_TOKENS),
             ))["raw_response"]
         parsed = _extract(raw)
@@ -233,6 +258,7 @@ async def run_stage_agent(
         # every worker gets what already exists — the order, the fetched records, the
         # earlier workers' results — so the agent never copies data into a task
         given = {
+            "today": date.today().isoformat(),
             "service_order": state.get("service_order") or state.get("query"),
             "data": _fetched(state),
             "worker_results": list(worker_results),

@@ -69,6 +69,13 @@ def merge_needs(current: list[Need], new: list[Need]) -> list[Need]:
     return list(by_id.values())
 
 
+def is_finished(results: dict[str, Any], node: str) -> bool:
+    """A node has finished once it has a result — unless a re-plan marked that
+    result `rerun`. The marked result stays, so the node sees what it did before."""
+    result = results.get(node)
+    return result is not None and not result.get("rerun")
+
+
 #generic for all the agents
 class State(TypedDict):
     schema_version: int
@@ -83,13 +90,13 @@ class State(TypedDict):
     priority: NotRequired[Literal["high", "medium", "low"]]  # planner's decision, raised a level once any flag is raised
     confidence: NotRequired[int]  # 0-100: the lowest stage confidence, once a stage has reported
     mcp_results: NotRequired[list[dict[str, Any]]]  # MCP tool calls, for later agents
-    results: Annotated[dict[str, dict[str, Any]], operator.or_]  # agent name -> its output (planner: its plan + priority)
+    results: Annotated[dict[str, dict[str, Any]], operator.or_]  # agent name -> its output (planner: its plan + priority); "rerun": true = run again after a re-plan
     steps: Annotated[list[StepRecord], operator.add]
     flags: Annotated[list[Flag], merge_flags]
     needs: Annotated[list[Need], merge_needs]  # agents' requests to each other, routed by the orchestrator
     runs: Annotated[dict[str, int], operator.or_]  # agent name -> times it has run (loop guard)
     worker_results: NotRequired[Annotated[dict[str, list[dict[str, Any]]], operator.or_]]  # agent name -> its worker tasks and their results
-    route: NotRequired[list[str]]  # the orchestrator model's choice of next hops, checked by nodes/orchestrator/guardrails.py
+    route: NotRequired[list[str]]  # the orchestrator model's choice of next hops, checked by nodes/orchestrator/route_rules.py
     summary: NotRequired[str]   # the orchestrator model's latest summary of the run, for the reviewer
     pipeline: NotRequired[list[dict[str, Any]]]  # the console's stages, in order; see graph/pipeline.py
     final_output: NotRequired[dict[str, Any]]

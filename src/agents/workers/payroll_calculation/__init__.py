@@ -1,1 +1,1 @@
-"""Payroll Calculation's worker agents: earnings, leave, deductions, reconcile, setup."""
+"""Payroll Calculation's worker agents: earnings, leave, deductions, reconcile."""
