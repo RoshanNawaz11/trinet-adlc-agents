@@ -154,7 +154,12 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
         "route": route,
         "steps": [step_record(
             "planning", "Orchestrator", f"Next: {', '.join(route)}", "Agents",
-            result=reason, evidence={"flags": [f["flag_id"] for f in flags], "gave_up_on": [n["id"] for n in needs]},
+            result=reason,
+            evidence={
+                "flags": [f["flag_id"] for f in flags],
+                "gave_up_on": [n["id"] for n in needs],
+                "attempts": len(rejected) + 1,  # 1 = the first route was accepted
+            },
         )],
     }
     if flags:

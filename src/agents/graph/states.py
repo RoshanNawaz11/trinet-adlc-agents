@@ -54,6 +54,13 @@ class Need(TypedDict):
     error: str | None           # why it failed
 
 
+# one finished call of a graph node, for the console's per-agent figures
+class NodeTiming(TypedDict):
+    agent: str                  # the graph node name, e.g. "payroll-calculation"
+    started_at: str             # ISO-8601 UTC
+    finished_at: str            # ISO-8601 UTC
+
+
 def merge_flags(current: list[Flag], new: list[Flag]) -> list[Flag]:
     """Each agent adds its own flags; the orchestrator sends back an updated
     copy of one it merged. A flag with a known flag_id replaces it in place."""
@@ -95,6 +102,7 @@ class State(TypedDict):
     flags: Annotated[list[Flag], merge_flags]
     needs: Annotated[list[Need], merge_needs]  # agents' requests to each other, routed by the orchestrator
     runs: Annotated[dict[str, int], operator.or_]  # agent name -> times it has run (loop guard)
+    timings: NotRequired[Annotated[list[NodeTiming], operator.add]]  # every finished node call; a failed attempt adds none
     worker_results: NotRequired[Annotated[dict[str, list[dict[str, Any]]], operator.or_]]  # agent name -> its worker tasks and their results
     route: NotRequired[list[str]]  # the orchestrator model's choice of next hops, checked by nodes/orchestrator/route_rules.py
     summary: NotRequired[str]   # the orchestrator model's latest summary of the run, for the reviewer

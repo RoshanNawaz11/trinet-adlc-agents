@@ -11,7 +11,11 @@
 
 """
 
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
+from typing import Any
 
 from langgraph._internal._retry import default_retry_on
 from langgraph.graph import END, START, StateGraph
@@ -44,18 +48,35 @@ def _retry_on(exc: Exception) -> bool:
 
 _RETRY = RetryPolicy(max_attempts=3, retry_on=_retry_on)
 
+Node = Callable[[State], Awaitable[dict[str, Any]]]
+
+
+def timed(name: str, node: Node) -> Node:
+    """Record when each call of ``node`` started and finished under ``timings``."""
+    @wraps(node)
+    async def run(state: State) -> dict[str, Any]:
+        started = datetime.now(UTC).isoformat()
+        update = await node(state)
+        timing = {"agent": name, "started_at": started, "finished_at": datetime.now(UTC).isoformat()}
+        return {**update, "timings": [timing]}
+    return run
+
 
 def build_graph(checkpointer_kind: str = "memory", db_path: Path | None = None):
     graph = StateGraph(State)
 
-    graph.add_node("orchestrator", orchestrator_node, retry_policy=_RETRY)
-    graph.add_node("planner", planner_node, retry_policy=_RETRY)
-    graph.add_node("validation", validation_node, retry_policy=_RETRY)
-    graph.add_node("compliance", compliance_node, retry_policy=_RETRY)
-    graph.add_node("payroll-calculation", payroll_calculation_node, retry_policy=_RETRY)
-    graph.add_node("execution", execution_node, retry_policy=_RETRY)
-    graph.add_node(OUTPUT_VALIDATOR, output_validator_node, retry_policy=_RETRY)
-    graph.add_node("fetch", fetch_node, retry_policy=_RETRY)
+    nodes = {
+        "orchestrator": orchestrator_node,
+        "planner": planner_node,
+        "validation": validation_node,
+        "compliance": compliance_node,
+        "payroll-calculation": payroll_calculation_node,
+        "execution": execution_node,
+        OUTPUT_VALIDATOR: output_validator_node,
+        "fetch": fetch_node,
+    }
+    for name, node in nodes.items():
+        graph.add_node(name, timed(name, node), retry_policy=_RETRY)
     graph.add_node("review", review_node)
 
     graph.add_edge(START, "orchestrator")
