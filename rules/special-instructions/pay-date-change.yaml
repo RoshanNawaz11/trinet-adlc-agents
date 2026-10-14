@@ -1,0 +1,29 @@
+id: special-instructions.pay-date-change
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that changes when final pay is paid.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds, requested_pay_date, final_pay_due_date]
+
+judgement:
+  - Recognise it — e.g. "Pay on the last day", "Pay early", "Pay with the next regular payroll".
+  - The date the instruction asks for, as requested_pay_date.
+
+cases:
+  - when: "'pay-date-change' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: "final_pay_due_date is None"
+    then: {result: not available, outcome: wait, reason: "Waiting for Compliance's due date"}
+  - when: "requested_pay_date == final_pay_due_date"
+    then: {result: pass, note: "The instruction asks for the date that is already due"}
+  - when: "requested_pay_date > final_pay_due_date"
+    then: {result: not available, outcome: stop,
+           reason: "The instruction asks for a date later than the law allows — the law wins; an analyst tells the client"}
+  - when: true
+    then: {result: not available, outcome: stop,
+           reason: "The instruction changes the pay date — it overrides Compliance's due date, timing and submit-by; an analyst decides"}
+
+outputs: [result, outcome, reason]

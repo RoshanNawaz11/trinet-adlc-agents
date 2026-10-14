@@ -1,0 +1,52 @@
+id: payroll.inputs-present
+version: 2
+agent: payroll-calculation
+worker: earnings
+purpose: Make sure everything needed to calculate the final paycheck is on record before any amount is calculated.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [employment_type, case_facts_confirmed, pay_type, pay_rate, withholding, final_period_hours,
+         order_hours, conflicting_inputs, awaiting_confirmation, worked_in_two_states]
+
+judgement:
+  - Whether two sources give different values for the same input — list them in conflicting_inputs.
+  - A pay rate that changed during the final period is not a conflict.
+
+compute:
+  - missing_inputs: "missing_of('pay_rate', 'pay_type', 'withholding') + (missing_of('final_period_hours') if pay_type == 'hourly' else [])"
+
+checks:
+  - when: "order_hours is not None and order_hours != final_period_hours"
+    then: {flag: {kind: check, title: "The order's hours differ from the timecard; the timecard is used",
+                  detail: {order_hours: "= order_hours", timecard_hours: "= final_period_hours"}}}
+  - when: "worked_in_two_states is True"
+    then: {flag: {kind: decision, title: "Worked in two states in the final period — confirm the split"}}
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, outcome: stop,
+           flag: {kind: decision, title: "Confirm the contractor classification"}}
+    why: Contracts are closed out, not paid through payroll.
+  - when: "case_facts_confirmed is None"
+    then: {result: not available, outcome: wait, reason: "Waiting for Validation's result"}
+  - when: "case_facts_confirmed is False"
+    then: {result: not available, reason: "Validation shows the employee isn't identified or the dates are invalid; nothing is calculated"}
+  - when: "'final_period_hours' in awaiting_confirmation"
+    then: {result: not available, outcome: wait, reason: "Another team must confirm the final hours"}
+  - when: "missing_inputs"
+    then: {result: fail, outcome: stop,
+           flag: {kind: input, type: missingData, title: "Pay inputs missing", detail: {missing: "= missing_inputs"}}}
+    why: Never guess a rate, pay type, hours or withholding; every amount stays null.
+  - when: "conflicting_inputs"
+    then: {result: fail, outcome: stop,
+           flag: {kind: input, type: missingData, title: "Pay inputs conflict", detail: {conflicting: "= conflicting_inputs"}}}
+    why: Never pick one of the values.
+  - when: true
+    then: {result: pass}
+    why: Zero hours is a value, not a missing input — e.g. on leave, or already paid through the last day.
+
+outputs: [result, missing_inputs, outcome, reason]
+
+to_confirm:
+  - Stop vs. flag — today the agents flag a missing input and carry on to one review at the end (X2/X3).

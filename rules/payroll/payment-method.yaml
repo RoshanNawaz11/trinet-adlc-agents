@@ -1,0 +1,63 @@
+id: payroll.payment-method
+version: 2
+agent: payroll-calculation
+worker: reconcile
+purpose: Make sure the final pay can be paid the way it is set up, as the state allows, and in time.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [employment_type, termination_type, payment_method_on_file, method_active, prenote_verified,
+         allowed_methods, deposit_consent, arrives_by_due_date, other_method_arrives, mailing_address_current,
+         payment_change_outcome, separate_check_requested]
+
+judgement:
+  - The method on file in plain values — "Direct Deposit" → direct_deposit, "Check" → check.
+  - Whether the method's cut-off (bank file for direct deposit, same-day for a live check) reaches the due date.
+
+checks:
+  - when: "payment_method_on_file == 'check' and mailing_address_current is False"
+    then: {flag: {kind: check, title: "A mailed check needs a current address"}}
+  - when: "separate_check_requested is True"
+    then: {note: "Check the method for each check"}
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, outcome: stop,
+           flag: {kind: decision, title: "Confirm the contractor classification"}}
+  - when: "termination_type == 'death'"
+    then: {result: not available, payment_method: null, outcome: stop,
+           reason: "The payee becomes the estate or surviving spouse (compliance.final-pay)"}
+  - when: "payment_change_outcome == 'stop'"
+    then: {result: not available, payment_method: null, outcome: stop,
+           reason: "A special instruction changes the method or delivery (special-instructions.payment-change)"}
+  - when: "missing(payment_method_on_file, allowed_methods)"
+    then: {result: not available, payment_method: null}
+    why: Never assume the method is active, verified or allowed.
+  - when: "payment_method_on_file == 'direct_deposit' and (method_active is False or prenote_verified is False)"
+    then: {result: fail, payment_method: null,
+           flag: {kind: decision, type: paymentMethodFail, title: "Direct deposit is inactive or not verified",
+                  detail: {current_method: "= payment_method_on_file", recommended_method: check}}}
+  - when: "payment_method_on_file == 'direct_deposit' and 'direct_deposit_with_consent' in allowed_methods and deposit_consent is not True"
+    then: {result: fail, payment_method: null,
+           flag: {kind: decision, type: paymentMethodFail, title: "Direct deposit needs the employee's consent, and none is on record",
+                  detail: {current_method: direct_deposit, recommended_method: check}}}
+  - when: "payment_method_on_file == 'direct_deposit' and 'direct_deposit_with_consent' in allowed_methods"
+    then: {result: pass, payment_method: direct_deposit}
+  - when: "payment_method_on_file not in allowed_methods"
+    then: {result: fail, payment_method: null,
+           flag: {kind: decision, type: paymentMethodFail, title: "The state doesn't allow this method for this termination",
+                  detail: {current_method: "= payment_method_on_file", recommended_method: "= first(allowed_methods)"}}}
+  - when: "arrives_by_due_date is False and other_method_arrives is True"
+    then: {result: fail, payment_method: null,
+           flag: {kind: decision, type: paymentMethodFail, title: "The method can't arrive by the due date",
+                  detail: {current_method: "= payment_method_on_file", recommended_method: live_check}}}
+  - when: true
+    then: {result: pass, payment_method: "= payment_method_on_file"}
+    why: If no method arrives in time, compliance.submit-by's cutoffRisk covers it — not raised here.
+
+outputs: [result, payment_method, outcome, reason]
+
+not_included: The due date and submit-by time (compliance); the amount (payroll.net-pay).
+
+to_confirm:
+  - Death rows in tables/state assume a check for the estate.

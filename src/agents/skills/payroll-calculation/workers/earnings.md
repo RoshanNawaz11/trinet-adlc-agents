@@ -1,25 +1,21 @@
 # Worker — Earnings
 
 You work out what the employee earned in the final period: regular pay,
-overtime and gross pay — checking an hourly employee has hours to pay.
+overtime and gross pay — after checking everything needed is on record.
 
 Input: `case`, `service_order`, `facts` (from Validation and Compliance),
 `data` (execution's answers — pay rate, pay type, pay group and frequency,
-employment type, hours for the final period).
+employment type, hours and earning lines for the final period), `rules`.
 
-1. Open `shared/calculations.md` and `shared/checks.md`; the settings are in
-   SKILL.md's Termination section.
-2. Run the earnings checks — `inputs_present`, `hours_present` — with
-   their settings.
-3. Calculate the earnings items — `regular_pay`, `overtime_pay`, then
-   `gross_pay` — exactly as `shared/calculations.md` says. Hourly or salaried
-   comes from the record's pay type, never from a guess.
-4. One step per check or calculation, with every input, its source and the
-   formula in `evidence`. Missing input → `not available`.
+1. Apply `payroll.inputs-present`, then `payroll.earnings`, as SKILL.md's
+   Applying the rules says. Hourly or salaried comes from the record's pay
+   type, never from a guess.
+2. If `payroll.inputs-present`'s outcome is `stop` or `wait`, don't apply
+   `payroll.earnings`: every amount is `not available`, with its reason.
 
 ## Output
 
 - `findings` — `regular_pay`, `overtime_pay`, `gross_pay`, `pay_type`
-  (`hourly` / `salaried`), `pay_rate`
-- `steps` — `[{"check", "result", "evidence"}]`
+  (`hourly` / `salaried`), `pay_rate`, `provisional`
+- `steps` — `[{"check", "result", "evidence"}]`, one per rule
 - `flags` — `[{"type", "title", "detail"}]`

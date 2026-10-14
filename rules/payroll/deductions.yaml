@@ -1,0 +1,84 @@
+id: payroll.deductions
+version: 2
+agent: payroll-calculation
+worker: deductions
+purpose: Work out what is taken from the final paycheck — benefit and other recurring deductions, garnishments, and any amount the employee owes back.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [employment_type, termination_type, benefits_eligible, last_day_worked, coverage_end_date,
+         negative_leave_hours, payout_rate, deduct_negative_allowed, signed_agreement_on_file, instruction_kinds]
+
+judgement:
+  - Whether a signed agreement on file covers this deduction.
+  - Whether an earlier pay already took a deduction for the final period.
+
+lines:
+  - for_each: deduction_lines
+    each: [deduction_type, deduction_amount, before_tax, already_taken]
+    cases:
+      - when: "already_taken is True"
+        then: {line_deduction: 0, reason: "Already taken in an earlier pay"}
+      - when: "deduction_type == 'benefit' and benefits_eligible is False"
+        then: {line_deduction: 0, reason: "Not eligible for benefits"}
+      - when: "deduction_type == 'benefit' and benefits_eligible is None"
+        then: {line_deduction: null}
+      - when: "deduction_type == 'benefit' and deduction_amount is None and coverage_end_date > last_day_worked"
+        then: {line_deduction: null,
+               flag: {kind: check, title: "Coverage runs past the last day and the payroll system gives no deduction for it"}}
+      - when: true
+        then: {line_deduction: "= deduction_amount"}
+        why: As the payroll system gives it for this pay — benefit deductions only up to the coverage end date.
+    total:
+      line_deductions: {sum: line_deduction}
+      before_tax_deductions: {sum: line_deduction, where: "before_tax is True"}
+      after_tax_deductions: {sum: line_deduction, where: "before_tax is False"}
+
+  - for_each: garnishment_orders
+    each: [garnishment_amount, garnishment_shortfall, set_up_in_payroll]
+    cases:
+      - when: "set_up_in_payroll is False"
+        then: {line_garnishment: null,
+               flag: {kind: decision, title: "A garnishment order is not yet set up in payroll"}}
+      - when: true
+        then: {line_garnishment: "= garnishment_amount"}
+        why: The amount the payroll system's rules take, in its order and up to its limit — never a limit worked out here.
+    total:
+      garnishments: {sum: line_garnishment}
+      garnishment_shortfall: {sum: garnishment_shortfall}
+
+compute:
+  - negative_leave_amount: "negative_leave_hours * payout_rate"
+
+checks:
+  - when: "negative_leave_hours > 0 and deduct_negative_allowed is not True"
+    then: {note: "A negative leave balance is not recovered: the record doesn't allow it"}
+  - when: "negative_leave_hours > 0 and deduct_negative_allowed is True and signed_agreement_on_file is not True"
+    then: {note: "A negative leave balance is not recovered: no signed agreement on file"}
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, outcome: stop,
+           flag: {kind: decision, title: "Confirm the contractor classification"}}
+  - when: "termination_type == 'death'"
+    then: {result: not available, deductions: null, garnishments: null, outcome: stop,
+           reason: "Garnishments and the payee change on death"}
+  - when: "missing(line_deductions, garnishments)"
+    then: {result: not available, deductions: null}
+    why: Never guess an amount, a limit or an end date.
+  - when: "negative_leave_hours > 0 and deduct_negative_allowed is True and signed_agreement_on_file is True"
+    then: {result: pass, deductions: "= line_deductions + negative_leave_amount",
+           after_tax_deductions: "= after_tax_deductions + negative_leave_amount",
+           flag: {kind: decision, title: "A negative leave balance is recovered from final pay — confirm"}}
+  - when: "'deduction-request' in instruction_kinds"
+    then: {result: pass, deductions: "= line_deductions", outcome: stop,
+           reason: "A special instruction asks for a deduction — left out; legal limits apply and a signed agreement is needed"}
+  - when: true
+    then: {result: pass, deductions: "= line_deductions"}
+
+outputs: [result, deductions, before_tax_deductions, after_tax_deductions, garnishments, garnishment_shortfall, outcome, reason]
+
+not_included: Taxes and unrecoverable amounts (payroll.net-pay); what the client is billed (payroll.benefits).
+
+to_confirm:
+  - Negative leave — is the record's setting enough, or is a signed agreement always needed?

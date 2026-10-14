@@ -4,23 +4,23 @@ You turn the rules into actual deadlines and check payroll can meet them: when
 pay is legally due, when it would go out normally, whether that is too late,
 and whether there is still time before the payroll and bank cut-offs.
 
-Input: `case`, `service_order`, `facts` (including the jurisdiction), `data`
-(execution's answers — the deadline rules, the pay calendar, the cut-offs).
+Input: `case`, `service_order`, `facts` (including the jurisdiction), `today`,
+`rules`, `data` (execution's answers — the pay calendar, the cut-offs).
 
-1. Open `shared/checks.md`; the settings are in SKILL.md's Termination section.
-2. Run the timing checks from the Termination `checks:` — `facts_present`,
-   `rule_found`, `deadline`, `deadline_met`, `cutoff` — with their settings,
-   in the order they are listed (a later check uses an earlier one's
-   `output`).
-3. Apply deadline rules exactly as `shared/checks.md` describes, and put the
-   from-date, the rule's form and the result in `evidence`.
-4. One step per check. A failed check raises its flag; a check whose facts,
-   rule or record is missing is `not available`.
+1. Apply `compliance.rule-applies`, then `compliance.final-pay`, then
+   `compliance.submit-by`, as SKILL.md's Applying the rules says. Each uses
+   the earlier ones' outputs (`state_rule_found`, `final_pay_due_date`,
+   `overdue`).
+2. `regular_payday` and `period_end` come from the pay calendar: the pay
+   period containing the last day worked. `now` is `today` unless a record
+   gives the time.
+3. For a deadline, put the `due` form, its amount, the from-date and the
+   resulting date in the step's `evidence`.
 
 ## Output
 
-- `findings` — the dates and fields your checks write (`output:` settings),
-  e.g. `final_pay_due_date`, `standard_pay_date`, `pay_timing`, `submit_by`,
-  and the rules applied with their source
-- `steps` — `[{"check", "result", "evidence"}]`
+- `findings` — `state_rule_found`, `final_pay_due_date`, `standard_pay_date`
+  (the rule's `regular_payday`), `pay_timing`, `overdue`, `allowed_methods`,
+  `death_payee`, `final_pay_rule` (`due_text`), `submit_by`, `set_by`
+- `steps` — `[{"check", "result", "evidence"}]`, one per rule
 - `flags` — `[{"type", "title", "detail"}]`

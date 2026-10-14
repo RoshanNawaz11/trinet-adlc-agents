@@ -1,0 +1,43 @@
+id: validation.dates-valid
+version: 2
+agent: validation
+worker: validator
+purpose: Make sure the case's dates are in a possible order — hire date < last day worked ≤ termination date.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [hire_date, last_day_worked, termination_date, today]
+
+judgement:
+  - A rehired employee — use the latest hire date.
+
+compute:
+  - days_on_leave_before_exit: "days_between(last_day_worked, termination_date)"
+
+checks:
+  - when: "days_on_leave_before_exit > 14"
+    then: {note: "The last day worked is well before the termination date (e.g. on leave); Compliance checks the leave"}
+  - when: "termination_date > today"
+    then: {note: "The termination date is in the future"}
+  - when: "termination_date < today"
+    then: {note: "The termination date has passed; Compliance checks whether final pay is already overdue"}
+
+cases:
+  - when: "missing(hire_date, last_day_worked, termination_date)"
+    then: {result: not available}
+    why: No flag of its own — case-facts names the missing date.
+  - when: "last_day_worked == hire_date"
+    then: {result: fail, flag: {kind: decision, type: invalidDates, title: "A same-day exit — the last day worked is the hire date"}}
+  - when: "last_day_worked < hire_date or last_day_worked > termination_date"
+    then: {result: fail, outcome: stop,
+           flag: {kind: decision, type: invalidDates, title: "The dates are not in a possible order",
+                  detail: {hire_date: "= hire_date", last_day_worked: "= last_day_worked", termination_date: "= termination_date"}}}
+  - when: true
+    then: {result: pass}
+    why: On death the termination date is the date of death; the last day worked may be earlier.
+
+outputs: [result, outcome]
+
+to_confirm:
+  - Same-day exit (hire date = last day worked) — valid?
+  - How many days between the last day worked and the termination date count as "well before"? (14 here.)

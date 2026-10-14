@@ -1,0 +1,60 @@
+id: payroll.benefits
+version: 2
+agent: payroll-calculation
+worker: deductions
+purpose: Decide whether the employee is benefits-eligible for the final pay period, and what benefit cost is billed to the client.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [employment_type, termination_type, eligible_on_record, fte, plan_min_fte,
+         bill_benefits_to_client, employee_share_premium]
+
+judgement:
+  - The plan's eligibility terms (e.g. minimum FTE), from the plan record.
+
+lines:
+  - for_each: coverage_lines
+    each: [coverage_name, employer_premium, active_in_period, waived, changed_in_period]
+    cases:
+      - when: "waived is True"
+        then: {line_billed: 0, reason: "Coverage waived"}
+      - when: "active_in_period is False"
+        then: {line_billed: 0, reason: "Coverage ended before the final period"}
+      - when: "employer_premium is None and changed_in_period is True"
+        then: {line_billed: null,
+               flag: {kind: check, title: "Coverage changed during the final period and the system gives no premium"}}
+      - when: true
+        then: {line_billed: "= employer_premium"}
+        why: The employer premium for the part of the period the coverage was active, as the payroll system gives it.
+    total:
+      premiums_billed: {sum: line_billed}
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, outcome: stop,
+           flag: {kind: decision, title: "Confirm the contractor classification"}}
+  - when: "termination_type == 'death'"
+    then: {result: not available, outcome: stop, reason: "Coverage ends at death; dependants may continue it"}
+  - when: "eligible_on_record is None"
+    then: {result: not available, benefits_eligible: null, benefits_billed_to_client: null}
+    why: Never guess eligibility from pay type alone.
+  - when: "eligible_on_record is True and employment_type == 'temporary'"
+    then: {result: pass, benefits_eligible: null, benefits_billed_to_client: "= premiums_billed",
+           flag: {kind: decision, type: benefitsAmbiguous, title: "A temporary employee marked eligible — eligible or not?"}}
+    why: net-pay works out both options; the recommendation names the one the records support best.
+  - when: "eligible_on_record is True and employment_type == 'part-time' and fte < plan_min_fte"
+    then: {result: pass, benefits_eligible: null, benefits_billed_to_client: "= premiums_billed",
+           flag: {kind: decision, type: benefitsAmbiguous, title: "Marked eligible, but FTE is below the plan's minimum — eligible or not?"}}
+  - when: "bill_benefits_to_client is True"
+    then: {result: pass, benefits_eligible: "= eligible_on_record",
+           benefits_billed_to_client: "= premiums_billed + employee_share_premium",
+           flag: {kind: decision, title: "The order asks to bill the employee's share to the client — confirm"}}
+  - when: true
+    then: {result: pass, benefits_eligible: "= eligible_on_record", benefits_billed_to_client: "= premiums_billed"}
+
+outputs: [result, benefits_eligible, benefits_billed_to_client, outcome, reason]
+
+not_included: Benefit deductions from pay (payroll.deductions); COBRA notices (compliance.cobra) — continuation premiums are paid by the employee directly.
+
+to_confirm:
+  - Eligibility from status codes and FTE (team's rule), or from the record's eligibility against employment type (what this rule does)?

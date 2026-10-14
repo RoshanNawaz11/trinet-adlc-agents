@@ -96,6 +96,7 @@ class State(TypedDict):
     needs: Annotated[list[Need], merge_needs]  # agents' requests to each other, routed by the orchestrator
     runs: Annotated[dict[str, int], operator.or_]  # agent name -> times it has run (loop guard)
     worker_results: NotRequired[Annotated[dict[str, list[dict[str, Any]]], operator.or_]]  # agent name -> its worker tasks and their results
+    rules: NotRequired[Annotated[dict[str, dict[str, Any]], operator.or_]]  # agent name -> the rules it fetched for the case (rules_engine/fetch.py)
     route: NotRequired[list[str]]  # the orchestrator model's choice of next hops, checked by nodes/orchestrator/route_rules.py
     summary: NotRequired[str]   # the orchestrator model's latest summary of the run, for the reviewer
     pipeline: NotRequired[list[dict[str, Any]]]  # the console's stages, in order; see graph/pipeline.py

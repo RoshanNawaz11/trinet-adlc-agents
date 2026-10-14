@@ -1,0 +1,96 @@
+id: payroll.leave-payout
+version: 3
+agent: payroll-calculation
+worker: leave
+purpose: Decide whether the employee's unused leave is paid out with the final paycheck, and how much.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [termination_type, employment_type, requirement, payout_rate, payout_rate_effective_date,
+         last_day_worked, service_months, dismissed_for_cause, on_leave_of_absence, instruction_kinds,
+         policy_min_service_months, policy_pays_out_sick, policy_forfeits_for_cause, policy_unlimited_leave]
+
+judgement:
+  - Which balance is the payroll system's final-pay balance, when two records differ — that one is balance_hours.
+  - The policy's minimum length of service, sick-leave payout, forfeiture and unlimited-leave terms, from its text.
+  - For a salaried employee, the hourly equivalent by the approved conversion.
+
+lines:
+  - for_each: leave_balances
+    each: [leave_type, balance_hours, balance_as_of, other_balance_hours, adjustment_reason,
+           plan_max_hours, policy_pays_out, already_paid_out]
+    checks:
+      - when: "balance_as_of < last_day_worked"
+        then: {provisional: true, flag: {kind: check, title: "A leave balance is dated before the last day worked"}}
+      - when: "balance_hours > plan_max_hours"
+        then: {flag: {kind: check, title: "A leave balance is above the plan's maximum; the maximum is paid"}}
+      - when: "adjustment_reason == ''"
+        then: {flag: {kind: check, title: "A leave balance has a manual adjustment with no reason"}}
+      - when: "other_balance_hours is not None"
+        then: {note: "Another record shows a different balance; the payroll system's is used"}
+    cases:
+      - when: "balance_hours is None"
+        then: {line_payout: null}
+      - when: "already_paid_out is True"
+        then: {line_payout: 0, reason: "Already paid out"}
+        why: Never pay it twice.
+      - when: "leave_type in ['sick', 'floating_holiday'] and policy_pays_out_sick is not True"
+        then: {line_payout: 0, reason: "Sick and floating-holiday leave is not paid out"}
+      - when: "balance_hours <= 0"
+        then: {line_payout: 0, reason: "No unused leave"}
+        why: A negative balance means leave was used before it was earned; nothing is owed. Taking it back is payroll.deductions's job.
+      - when: "requirement in ['policy', 'policy_else_required'] and policy_forfeits_for_cause is True and dismissed_for_cause is True"
+        then: {line_payout: 0, reason: "The policy forfeits leave on dismissal for cause"}
+      - when: "requirement == 'required'"
+        then: {line_payout: "= min(balance_hours, plan_max_hours) * payout_rate"}
+        why: State law overrides the company policy.
+      - when: "requirement == 'policy_else_required' and policy_pays_out is None"
+        then: {line_payout: "= min(balance_hours, plan_max_hours) * payout_rate",
+               reason: "The policy is silent, so the state requires the payout"}
+      - when: "requirement in ['policy', 'policy_else_required'] and policy_pays_out is True and service_months >= policy_min_service_months"
+        then: {line_payout: "= min(balance_hours, plan_max_hours) * payout_rate"}
+      - when: "requirement in ['policy', 'policy_else_required', 'not_required']"
+        then: {line_payout: 0, reason: "Not required, and the policy doesn't pay out or the minimum service isn't met"}
+      - when: true
+        then: {line_payout: null}
+    total:
+      leave_payout: {sum: line_payout}
+
+checks:
+  - when: "payout_rate_effective_date > last_day_worked"
+    then: {flag: {kind: check, title: "The payout rate took effect after the last day worked"}}
+  - when: "on_leave_of_absence is True"
+    then: {note: "The employee is on a leave of absence; Compliance raises its own exception"}
+
+cases:
+  - when: "'payout-override' in instruction_kinds"
+    then: {result: not available, leave_payout: null, outcome: stop,
+           reason: "A special instruction overrides the payout (special-instructions.payout-override)"}
+  - when: "termination_type == 'death'"
+    then: {result: not available, leave_payout: null, outcome: stop,
+           reason: "The payee changes to the estate (special-instructions.death)"}
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, leave_payout: 0, outcome: stop,
+           flag: {kind: decision, title: "Confirm the contractor classification"}}
+    why: Contractors don't accrue company leave.
+  - when: "policy_unlimited_leave is True and requirement == 'required'"
+    then: {result: not available, leave_payout: null,
+           flag: {kind: decision, title: "Unlimited leave where the law requires a payout — decide what is owed"}}
+  - when: "policy_unlimited_leave is True"
+    then: {result: pass, leave_payout: 0, reason: "Unlimited leave: no balance to pay out"}
+  - when: "requirement is None"
+    then: {result: not available, leave_payout: null, outcome: wait,
+           reason: "Waiting for Compliance's payout requirement"}
+    why: Never assume leave is paid, or not paid.
+  - when: "missing(payout_rate, leave_payout)"
+    then: {result: not available, leave_payout: null}
+  - when: true
+    then: {result: pass}
+
+outputs: [result, leave_payout, provisional, outcome, reason]
+
+not_included: Leave taken during the final period (payroll.earnings); recovering a negative balance (payroll.deductions).
+
+to_confirm:
+  - Does a policy's minimum length of service also apply when state law requires the payout?
+  - Over the plan's maximum — pay the capped hours, or stop?

@@ -1,0 +1,48 @@
+id: compliance.submit-by
+version: 2
+agent: compliance
+worker: timing
+purpose: Work out the latest time final pay can be submitted and still meet every deadline.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [order_deadline, payroll_cutoff, method_cutoff, now, overdue, due, termination_meeting_time,
+         payment_method_settled, close_margin_hours]
+
+judgement:
+  - Every time is an exact moment with its time zone; a deadline whose time zone isn't stated is left out (null) and noted.
+  - payroll_cutoff — the change deadline when on-cycle, the off-cycle request cut-off when off-cycle.
+  - method_cutoff — the bank file cut-off for direct deposit, the same-day cut-off for a live check.
+
+compute:
+  - submit_by: "min(order_deadline, payroll_cutoff, method_cutoff)"
+  - set_by: "smallest(order_deadline=order_deadline, payroll_cutoff=payroll_cutoff, method_cutoff=method_cutoff)"
+  - hours_left: "hours_between(now, submit_by)"
+
+checks:
+  - when: "payment_method_settled is False"
+    then: {note: "The payment method isn't settled — submit-by may change with it"}
+
+cases:
+  - when: "submit_by is None"
+    then: {result: not available}
+  - when: "overdue is True"
+    then: {result: fail,
+           flag: {kind: decision, type: cutoffRisk, title: "Final pay is already late",
+                  detail: {submit_by: "= submit_by", now: "= now", set_by: "= set_by"}}}
+    why: No second timing flag.
+  - when: "due == 'immediately' and termination_meeting_time is None"
+    then: {result: not available,
+           flag: {kind: input, title: "Final pay is due at termination — confirm the meeting time"}}
+  - when: "hours_left < close_margin_hours"
+    then: {result: fail,
+           flag: {kind: decision, type: cutoffRisk, title: "Past the submit-by time, or too close to call",
+                  detail: {submit_by: "= submit_by", now: "= now", set_by: "= set_by"}}}
+  - when: true
+    then: {result: pass}
+
+outputs: [result, submit_by, set_by, outcome]
+
+to_confirm:
+  - How close counts as too close to call (close_margin_hours)?
+  - Store every deadline in one time zone (team data fix 6).

@@ -1,8 +1,8 @@
-"""Payroll's leave worker — a model. Decides whether unused leave is paid out
-with final pay, and how much (skills/payroll-calculation/workers/leave.md).
+"""Payroll's leave worker — a model. Applies payroll.leave-payout: whether unused
+leave is paid out with final pay, and how much (skills/payroll-calculation/workers/leave.md).
 
-    input  {"case", "facts", "service_order", "data", "worker_results"}
-    output {"case", "worker", "findings": {"leave_payout", "leave_hours", "pto_payout"}, "steps", "flags"}
+    input  {"case", "facts", "service_order", "data", "worker_results", "rules"}
+    output {"case", "worker", "findings": {"leave_payout", "provisional", "leave_lines"}, "steps", "flags"}
 """
 
 from __future__ import annotations

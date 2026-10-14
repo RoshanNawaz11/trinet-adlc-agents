@@ -1,0 +1,25 @@
+id: special-instructions.confirmation-needed
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that says another team must confirm something before the case can be finished.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds, confirm_team, awaiting_confirmation]
+
+judgement:
+  - Recognise it — e.g. "Benefits to confirm coverage end", "Client manager to confirm final hours".
+  - Who must confirm (confirm_team), and which inputs wait for them (awaiting_confirmation, as fact names).
+
+cases:
+  - when: "'confirmation-needed' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: "not awaiting_confirmation"
+    then: {result: not available,
+           flag: {kind: decision, title: "Another team must confirm something, but the instruction doesn't say what"}}
+  - when: true
+    then: {result: not available, outcome: wait,
+           reason: "Waiting for another team to confirm — everything that doesn't depend on it carries on"}
+
+outputs: [result, confirm_team, awaiting_confirmation, outcome, reason]

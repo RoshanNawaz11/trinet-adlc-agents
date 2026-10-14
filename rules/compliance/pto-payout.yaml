@@ -1,0 +1,37 @@
+id: compliance.pto-payout
+version: 2
+agent: compliance
+worker: obligations
+purpose: Work out what the law requires for unused leave at termination.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [requirement, policy_on_file, policy_pays_out_any, instruction_kinds]
+
+judgement:
+  - What the company policy promises — whether it pays out, for which leave types, minimum service, forfeiture terms — from its text.
+
+checks:
+  - when: "requirement == 'required' and policy_pays_out_any is False"
+    then: {note: "The policy says no payout, but the law requires it — the law wins"}
+
+cases:
+  - when: "'payout-override' in instruction_kinds"
+    then: {result: not available, pto_payout: unknown, outcome: stop,
+           reason: "A special instruction changes the payout (special-instructions.payout-override)"}
+  - when: "requirement is None"
+    then: {result: not available, pto_payout: unknown}
+    why: compliance.rule-applies flags the missing rule. Never assume it is or isn't required.
+  - when: "requirement == 'policy' and policy_on_file is False"
+    then: {result: fail, pto_payout: policy, outcome: stop,
+           flag: {kind: input, type: missingData, title: "The law defers to the company policy, and none is on file",
+                  detail: {missing: [company_payout_policy]}}}
+  - when: "requirement == 'policy_else_required' and policy_on_file is False"
+    then: {result: pass, pto_payout: required, reason: "No policy on file, so the state requires the payout"}
+  - when: true
+    then: {result: pass, pto_payout: "= requirement"}
+
+outputs: [result, pto_payout, outcome, reason]
+
+to_confirm:
+  - States that forbid forfeiting earned leave ("use it or lose it") — not in the state table yet.

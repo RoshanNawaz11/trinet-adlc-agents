@@ -87,7 +87,7 @@ class WorkerSettings:
     # One service order holds its worker until the graph finishes, including
     # while that graph waits on the sub-task pool. Keep this small.
     max_jobs = int(os.getenv("ORDER_WORKER_CONCURRENCY", "2"))
-    job_timeout = int(os.getenv("ORDER_JOB_TIMEOUT", "900"))
+    job_timeout = int(os.getenv("ORDER_JOB_TIMEOUT", "3600"))
     # A redelivery would re-run the model calls. A crashed job stays failed;
     # the service order can be processed again as a new run.
     max_tries = 1

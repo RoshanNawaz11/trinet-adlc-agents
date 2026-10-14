@@ -1,0 +1,42 @@
+id: validation.termination-type
+version: 2
+agent: validation
+worker: validator
+purpose: Map the termination reason to a type — voluntary, involuntary or death.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [termination_reason_text, reason_field_and_description_disagree]
+
+judgement:
+  - The reason from the order's field, or from the description when there is no field.
+
+cases:
+  - when: "reason_field_and_description_disagree is True"
+    then: {result: not available, termination_type: unknown,
+           flag: {kind: input, title: "The reason field and the description disagree — pick one"}}
+  - when: "termination_reason_text is None"
+    then: {result: not available, termination_type: unknown}
+    why: case-facts names the missing reason.
+  - when: "mentions(termination_reason_text, ['mutual agreement', 'end of contract', 'end of assignment', 'released during notice', 'job abandonment', 'no-call', 'no call', 'no-show', 'no show'])"
+    then: {result: not available, termination_type: unknown,
+           flag: {kind: input, title: "The reason doesn't map clearly — select voluntary or involuntary"}}
+    why: Checked first — some of these contain words below. Released during notice may count as a discharge in some states.
+  - when: "mentions(termination_reason_text, ['death', 'deceased', 'died', 'passed away'])"
+    then: {result: pass, termination_type: death, outcome: stop,
+           reason: "The payee becomes the estate — an analyst handles it (special-instructions.death)"}
+  - when: "mentions(termination_reason_text, ['involuntary', 'fired', 'discharge', 'laid off', 'layoff', 'reduction in force', 'let go', 'terminated for cause', 'dismiss'])"
+    then: {result: pass, termination_type: involuntary}
+    why: Checked before voluntary — "involuntary" contains "voluntary".
+  - when: "mentions(termination_reason_text, ['voluntary', 'resign', 'quit', 'retire'])"
+    then: {result: pass, termination_type: voluntary}
+  - when: true
+    then: {result: not available, termination_type: unknown,
+           flag: {kind: input, title: "The reason doesn't map clearly — select voluntary or involuntary"}}
+    why: Never guess a type.
+
+outputs: [result, termination_type, termination_reason_text, outcome, reason]
+
+to_confirm:
+  - A death type — the other agents only know voluntary, involuntary and unknown today.
+  - Released during the notice period — unknown (this rule), or involuntary?
