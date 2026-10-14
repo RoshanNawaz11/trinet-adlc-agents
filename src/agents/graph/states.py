@@ -4,6 +4,10 @@ import operator
 
 Stage = Literal["planning", "validation", "compliance", "payroll", "execution"]
 
+# how the console's Fleet Activity Feed files a step:
+# attention = a person may need to act, handoff = work passed between agents, routine = everything else
+FeedKind = Literal["attention", "handoff", "routine"]
+
 
 # one step of the planner's plan: which agent runs, and what to focus on
 class PlanStep(TypedDict):
@@ -20,6 +24,7 @@ class StepRecord(TypedDict):
     at: str                     # ISO-8601 UTC
     result: NotRequired[str]
     evidence: NotRequired[dict[str, Any]]
+    feed: NotRequired[FeedKind]  # absent = not shown in the Fleet Activity Feed
 
 
 # an issue an agent found, shown to the reviewer at the end of the run
@@ -109,6 +114,14 @@ class State(TypedDict):
     pipeline: NotRequired[list[dict[str, Any]]]  # the console's stages, in order; see graph/pipeline.py
     final_output: NotRequired[dict[str, Any]]
     error: NotRequired[str]
+
+
+_FAILED_RESULTS = {"fail", "failed", "error"}
+
+
+def feed_for(result: str | None) -> FeedKind:
+    """A step whose own check or call failed needs attention; anything else is routine."""
+    return "attention" if str(result or "").strip().lower() in _FAILED_RESULTS else "routine"
 
 
 def step_record(stage: Stage, agent: str, title: str, source: str, **extra: Any) -> StepRecord:

@@ -160,6 +160,7 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
                 "gave_up_on": [n["id"] for n in needs],
                 "attempts": len(rejected) + 1,  # 1 = the first route was accepted
             },
+            feed="handoff",
         )],
     }
     if flags:

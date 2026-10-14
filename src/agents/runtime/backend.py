@@ -24,6 +24,17 @@ _STAGE_TONE = {
     "execution": "green",
 }
 
+# who raised a flag, by the stage it belongs to
+_STAGE_AGENT = {
+    "planning": "Orchestrator",
+    "validation": "Validation Agent",
+    "compliance": "Compliance Agent",
+    "payroll": "Payroll Calculation Agent",
+    "execution": "Execution Agent",
+}
+
+_FEED_KINDS = {"attention", "handoff", "routine"}
+
 
 def _backend_url() -> str:
     return os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
@@ -66,6 +77,7 @@ def events_from_update(
                 "kind": "agent",
                 "tone": _STAGE_TONE.get(str(step.get("stage") or ""), "blue"),
                 "employee_name": employee,
+                "feed_kind": step.get("feed") if step.get("feed") in _FEED_KINDS else None,
             }
         )
     for flag in update.get("flags") or []:
@@ -78,11 +90,12 @@ def events_from_update(
                 "dedupe_key": _clip(f"flag:{flag_id}"),
                 "title": _clip(_display(employee, title)),
                 "action": _clip(title),
-                "actor": "AI Agents",
+                "actor": _STAGE_AGENT.get(str(flag.get("stage") or ""), "AI Agents"),
                 "system": "Agents",
                 "kind": "agent",
                 "tone": "amber",
                 "employee_name": employee,
+                "feed_kind": "attention",
             }
         )
     return events
@@ -90,13 +103,13 @@ def events_from_update(
 
 def lifecycle_event(kind: str, *, employee: str | None) -> dict[str, Any]:
     catalog = {
-        "started": ("Processing started", "Started processing", "AI Agents", "agent", "blue"),
-        "paused": ("Ready for Mark as Reviewed", "Paused for analyst review", "AI Agents", "agent", "green"),
-        "completed": ("Review completed", "Completed review", "AI Agents", "agent", "green"),
-        "needs_review": ("Flagged for review", "Flagged for review", "AI Agents", "agent", "amber"),
-        "failed": ("Processing failed", "Processing failed", "System", "system", "red"),
+        "started": ("Processing started", "Started processing", "AI Agents", "agent", "blue", None),
+        "paused": ("Ready for Mark as Reviewed", "Paused for analyst review", "AI Agents", "agent", "green", "attention"),
+        "completed": ("Review completed", "Completed review", "AI Agents", "agent", "green", "routine"),
+        "needs_review": ("Flagged for review", "Flagged for review", "AI Agents", "agent", "amber", "attention"),
+        "failed": ("Processing failed", "Processing failed", "System", "system", "red", "attention"),
     }
-    title, action, actor, event_kind, tone = catalog[kind]
+    title, action, actor, event_kind, tone, feed_kind = catalog[kind]
     return {
         "dedupe_key": f"lifecycle:{kind}",
         "title": _clip(_display(employee, title.lower()) if employee else title),
@@ -106,6 +119,7 @@ def lifecycle_event(kind: str, *, employee: str | None) -> dict[str, Any]:
         "kind": event_kind,
         "tone": tone,
         "employee_name": employee,
+        "feed_kind": feed_kind,
     }
 
 

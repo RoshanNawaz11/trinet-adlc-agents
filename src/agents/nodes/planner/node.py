@@ -103,6 +103,7 @@ async def planner_node(state: State, gateway: ModelGateway | None = None) -> dic
             "Agents",
             result=" → ".join(s["agent"] for s in plan) if plan else "No agents scheduled",
             evidence={"priority": priority, "reason": reason},
+            feed="handoff",
         )],
     }
     if replan:

@@ -78,3 +78,27 @@ async def test_report_progress_posts_to_fastapi(monkeypatch: pytest.MonkeyPatch)
     assert isinstance(body, dict)
     assert body["run_status"] == "running"
     assert body["events"][0]["action"] == "Check identity"
+
+
+def test_events_carry_the_feed_kind_the_agents_tagged() -> None:
+    events = events_from_update(
+        {
+            "steps": [
+                {"stage": "planning", "agent": "Orchestrator", "title": "Next: validation", "at": "t1", "feed": "handoff"},
+                {"stage": "execution", "agent": "Execution Agent (fetch)", "title": "Looked up x", "at": "t2"},
+                {"stage": "payroll", "agent": "Payroll Calculation Agent", "title": "Odd", "at": "t3", "feed": "bogus"},
+            ],
+            "flags": [{"flag_id": "payroll-calculation-1", "stage": "payroll", "title": "Net pay mismatch", "resolved": False}],
+        },
+        employee=None,
+    )
+
+    assert [event["feed_kind"] for event in events] == ["handoff", None, None, "attention"]
+    assert events[3]["actor"] == "Payroll Calculation Agent"
+
+
+def test_lifecycle_events_are_tagged_for_the_feed() -> None:
+    assert lifecycle_event("started", employee=None)["feed_kind"] is None
+    assert lifecycle_event("paused", employee=None)["feed_kind"] == "attention"
+    assert lifecycle_event("failed", employee=None)["feed_kind"] == "attention"
+    assert lifecycle_event("completed", employee=None)["feed_kind"] == "routine"

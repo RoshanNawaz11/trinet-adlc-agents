@@ -32,3 +32,12 @@ def test_a_failed_call_records_no_timing():
 def test_the_graph_still_builds_with_timed_nodes():
     graph = build_graph("memory")
     assert {"orchestrator", "planner", "execution", "fetch", "review"} <= set(graph.nodes)
+
+
+def test_a_failed_check_needs_attention_and_anything_else_is_routine():
+    from agents.graph.states import feed_for
+
+    assert feed_for("fail") == "attention"
+    assert feed_for(" Error ") == "attention"
+    assert feed_for("pass") == "routine"
+    assert feed_for(None) == "routine"

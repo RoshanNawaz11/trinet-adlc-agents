@@ -9,7 +9,7 @@ import logging
 from datetime import date
 from typing import Any
 
-from agents.graph.states import Flag, Need, Stage, State, step_record
+from agents.graph.states import Flag, Need, Stage, State, feed_for, step_record
 from agents.model.gateway import ModelGateway, get_default_gateway
 from agents.queue.pool import HANDLERS
 from agents.queue.subtasks import dispatch
@@ -270,6 +270,7 @@ async def run_stage_agent(
             step_record(
                 stage, agent, f"Worker {t['kind']}", "Workers",
                 result=r["status"], evidence={"input": t["input"], "error": r.get("error")},
+                feed=feed_for(r["status"]),
             )
             for t, r in zip(tasks, results)
         ]
@@ -283,7 +284,9 @@ async def run_stage_agent(
                 "needs": needs,
                 "runs": {bundle: run},
                 "steps": worker_steps + [
-                    step_record(stage, agent, f"Asked {n['ask']}: {n['request']}", "Agents", result="waiting")
+                    step_record(
+                        stage, agent, f"Asked {n['ask']}: {n['request']}", "Agents", result="waiting", feed="handoff",
+                    )
                     for n in needs
                 ],
                 **kept,
@@ -296,6 +299,7 @@ async def run_stage_agent(
         step_record(
             stage, agent, f"Looked up {call['tool']}", f"MCP · {call['tool']}",
             result="error" if call.get("error") else "ok", evidence=call["input"], at=call["at"],
+            feed="attention" if call.get("error") else "routine",
         )
         for call in mcp_calls
     ]
@@ -303,6 +307,7 @@ async def run_stage_agent(
         step_record(
             stage, agent, str(s["title"]), str(s.get("source") or "Agents"),
             result=str(s.get("result") or ""), evidence=s.get("evidence") or {},
+            feed=feed_for(s.get("result")),
         )
         for s in parsed["steps"]
     ]
