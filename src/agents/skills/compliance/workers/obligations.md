@@ -3,22 +3,16 @@
 You work out what the rules require beyond pay timing: whether unused PTO must
 be paid out, and what COBRA notices are owed and by when.
 
-Input: `case`, `service_order`, `facts` (including the jurisdiction), `data`
-(execution's answers — the PTO rule, the COBRA rules, federal and any state,
-and the benefits coverage).
+Input: `case`, `service_order`, `facts` (including the jurisdiction), `rules`,
+`data` (execution's answers — the benefits coverage, the company leave
+policy if any).
 
-1. Open `shared/checks.md`; the settings are in SKILL.md's Termination section.
-2. Run the obligation checks from the Termination `checks:` — `requirement`,
-   `obligation` — with their settings.
-3. For an `obligation`, decide its `when` condition from the records (e.g.
-   COBRA applies only if the employee had health coverage). No record →
-   `not available`, not `not_applicable`.
-4. One step per check, with the rule and the facts in `evidence`. A check whose
-   rule or record is missing is `not available`.
+1. Apply `compliance.pto-payout`, then `compliance.cobra`, as SKILL.md's
+   Applying the rules says. `requirement` is `rules.state_law`'s.
+2. No coverage record → `health_coverage_on_last_day` is null, never false.
 
 ## Output
 
-- `findings` — the fields your checks write (`output:` settings), e.g.
-  `pto_payout`, `cobra`, and the rules applied with their source
-- `steps` — `[{"check", "result", "evidence"}]`
+- `findings` — `pto_payout`, `cobra`, `plan_notice_due`, `election_notice_due`
+- `steps` — `[{"check", "result", "evidence"}]`, one per rule
 - `flags` — `[{"type", "title", "detail"}]`

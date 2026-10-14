@@ -1,0 +1,22 @@
+id: special-instructions.deduction-request
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that asks to deduct something from final pay.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds, requested_deduction, requested_deduction_amount]
+
+judgement:
+  - Recognise it — e.g. unreturned laptop, salary advance, negative PTO.
+  - What is to be deducted, and the amount as stated.
+
+cases:
+  - when: "'deduction-request' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: true
+    then: {result: not available, outcome: stop,
+           reason: "A deduction is asked for — legal limits apply and a signed agreement is needed; it overrides payroll.deductions"}
+
+outputs: [result, requested_deduction, requested_deduction_amount, outcome, reason]

@@ -1,0 +1,26 @@
+id: validation.notice-given
+version: 2
+agent: validation
+worker: validator
+purpose: Find out whether notice was given, when the state's final-pay rule depends on it.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: [voluntary]}
+
+inputs: [notice_given, due_text]
+
+judgement:
+  - notice_given is yes only if the order says notice was given, no only if it says none was given; otherwise unknown.
+
+cases:
+  - when: "notice_given == 'unknown' and mentions(due_text, ['notice'])"
+    then: {result: not available, rule_depends_on_notice: true,
+           flag: {kind: input, title: "The state's rule depends on notice — confirm whether notice was given"}}
+  - when: "mentions(due_text, ['notice'])"
+    then: {result: pass, rule_depends_on_notice: true}
+  - when: true
+    then: {result: pass, rule_depends_on_notice: false}
+
+outputs: [result, notice_given, rule_depends_on_notice]
+
+to_confirm:
+  - The state table gives CA voluntary one row; with notice it is due on the last day — a notice_given key in the table would replace reading "notice" in the rule text.

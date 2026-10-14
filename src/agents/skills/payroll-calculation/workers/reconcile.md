@@ -1,32 +1,27 @@
 # Worker — Reconcile
 
 You put the final pay together and cross-check it: taxes, what can't be
-recovered, net pay, the payroll system's own figure, and the payment method.
+recovered, net pay, the payroll system's own figures, and the payment method.
 You run after the other workers.
 
 Input: `case`, `service_order`, `facts` (including Compliance's
 `final_pay_due_date`), `data` (execution's answers — the system's withholding,
-the system's net pay, the payment method on file), `worker_results` (the
-earnings, leave and deductions workers' results — use their
-`findings`).
+the system's net pay and totals, the payment method on file), `rules`,
+`worker_results` (the earnings, leave and deductions workers' results — their
+`findings` are your inputs).
 
-1. Open `shared/calculations.md` and `shared/checks.md`; the settings are in
-   SKILL.md's Termination section.
-2. Calculate `taxes`, `unrecoverable`, then `net_pay` from the round-1
-   findings and `data`, exactly as `shared/calculations.md` says. A worker
-   that failed, or an amount it couldn't work out, makes everything that
-   depends on it `not available`.
-3. Run the reconcile checks — `matches_system`,
-   `payment_method_usable` — with their settings. For a mismatch, explain the
-   difference from the components if you can.
-4. Check the result is consistent: every component used once, signs right,
-   nothing negative that shouldn't be.
-5. One step per calculation or check, with every input and the formula in
-   `evidence`.
+1. Apply `payroll.net-pay`, then `payroll.matches-system`, then
+   `payroll.payment-method`, as SKILL.md's Applying the rules says.
+2. A worker that failed, or an amount it couldn't work out, is null — and so
+   is everything that depends on it. An earlier result marked `provisional`
+   makes `inputs_provisional` true.
+3. If `benefits_eligible` is unresolved, apply `payroll.net-pay` and
+   `payroll.matches-system` once per option and fill `benefitsAmbiguous`'s
+   `option_a` and `option_b` with each one's `net_pay`.
 
 ## Output
 
 - `findings` — `taxes`, `unrecoverable`, `net_pay`, `system_net_pay`,
-  `payment_method`
-- `steps` — `[{"check", "result", "evidence"}]`
+  `payment_method`, `provisional`
+- `steps` — `[{"check", "result", "evidence"}]`, one per rule
 - `flags` — `[{"type", "title", "detail"}]`

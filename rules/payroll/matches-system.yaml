@@ -1,0 +1,55 @@
+id: payroll.matches-system
+version: 2
+agent: payroll-calculation
+worker: reconcile
+purpose: Check our final-pay figures against the payroll system's own figures and the client's order, so a wrong amount is caught before anyone is paid.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [net_pay, gross_pay, leave_payout, taxes, deductions, system_net_pay, system_total_gross,
+         system_taxes, system_deductions, system_leave_payout, order_total_pay, system_figures_stale]
+
+judgement:
+  - When benefits eligibility is unresolved, run this rule once per option; the option that matches shows what the system assumed.
+  - Separate checks — run it once per check.
+
+compute:
+  - our_total_gross: "gross_pay + leave_payout"
+  - net_match: "within(net_pay, system_net_pay, 0.01)"
+  - gross_match: "within(our_total_gross, system_total_gross, 0.01)"
+  - order_match: "None if order_total_pay is None else (within(order_total_pay, system_total_gross, 0.01) or within(order_total_pay, system_net_pay, 0.01))"
+  - differing_line: "largest_difference(taxes=[taxes, system_taxes], deductions=[deductions, system_deductions], leave_payout=[leave_payout, system_leave_payout], gross=[our_total_gross, system_total_gross])"
+
+checks:
+  - when: "system_figures_stale is True"
+    then: {flag: {kind: check, title: "The system's figures predate the latest change to hours, rate or leave"}}
+
+cases:
+  - when: "net_match is None and gross_match is None and order_match is None"
+    then: {result: not available}
+    why: Never compare against an estimate of our own.
+  - when: "(net_match is False or gross_match is False) and order_match is False"
+    then: {result: fail, flags: [
+             {kind: decision, type: netPayMismatch, title: "Our figures differ from the payroll system's",
+              detail: {calculated_net_pay: "= net_pay", system_net_pay: "= system_net_pay", line: "= differing_line"}},
+             {kind: decision, type: orderPayMismatch, title: "The order's pay differs from the payroll system's",
+              detail: {order: "= order_total_pay", system: "= system_total_gross"}}]}
+  - when: "net_match is False or gross_match is False"
+    then: {result: fail,
+           flag: {kind: decision, type: netPayMismatch, title: "Our figures differ from the payroll system's",
+                  detail: {calculated_net_pay: "= net_pay", system_net_pay: "= system_net_pay", line: "= differing_line"}}}
+    why: Raise the problem once, naming the line that explains it.
+  - when: "order_match is False"
+    then: {result: fail,
+           flag: {kind: decision, type: orderPayMismatch, title: "The order's pay differs from the payroll system's",
+                  detail: {order: "= order_total_pay", system: "= system_total_gross"}}}
+    why: Never pay the order's figure without the analyst confirming it.
+  - when: true
+    then: {result: pass}
+    why: Both zero is a match — e.g. already paid through the last day. An order that states net pay matches the system's net pay.
+
+outputs: [result, net_match, gross_match, order_match, differing_line]
+
+to_confirm:
+  - Flag name and severity for the order's pay differing (not in the team's rules yet).
+  - Is $0.01 also the right tolerance for gross?

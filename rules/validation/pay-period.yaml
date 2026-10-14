@@ -1,0 +1,44 @@
+id: validation.pay-period
+version: 2
+agent: validation
+worker: validator
+purpose: Find the pay period that contains the last day worked, its regular payday, and whether that pay run is still open.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [pay_group, last_day_worked, now, calendar_found, calendar_reaches_last_day, periods_containing_last_day,
+         period_start, period_end, regular_payday, change_deadline, pay_group_changed_in_period]
+
+judgement:
+  - Match the period by its dates (start ≤ last day worked ≤ end), never by the pay group's name or frequency.
+  - Use only regular pay runs; use the pay date the calendar gives, never shifted for weekends or holidays.
+  - The pay group on the last day worked, if it changed during the final period.
+
+checks:
+  - when: "pay_group_changed_in_period is True"
+    then: {flag: {kind: check, title: "The pay group changed during the final period; the one on the last day worked is used"}}
+
+cases:
+  - when: "missing(pay_group, last_day_worked)"
+    then: {result: not available, pay_cycle: unknown}
+    why: Never guess the pay group, calendar or dates.
+  - when: "calendar_found is False"
+    then: {result: fail, pay_cycle: unknown, outcome: stop,
+           flag: {kind: input, type: missingData, title: "No pay calendar for the pay group", detail: {missing: [pay_calendar]}}}
+  - when: "calendar_reaches_last_day is False"
+    then: {result: not available, pay_cycle: unknown,
+           flag: {kind: input, type: missingData, title: "The pay calendar doesn't reach the last day worked", detail: {missing: [pay_calendar]}}}
+  - when: "periods_containing_last_day is not None and periods_containing_last_day != 1"
+    then: {result: not available, pay_cycle: unknown,
+           flag: {kind: input, type: missingData, title: "No single pay period contains the last day worked", detail: {missing: [pay_period]}}}
+    why: Never pick a period.
+  - when: "change_deadline is None"
+    then: {result: pass, pay_cycle: unknown}
+  - when: "now <= change_deadline"
+    then: {result: pass, pay_cycle: on-cycle}
+  - when: true
+    then: {result: pass, pay_cycle: off-cycle}
+
+outputs: [result, pay_group, period_start, period_end, regular_payday, pay_cycle, outcome]
+
+not_included: Whether final pay must legally run off-cycle — compliance.final-pay decides it from the due date.

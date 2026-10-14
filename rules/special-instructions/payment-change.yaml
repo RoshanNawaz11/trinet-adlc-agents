@@ -1,0 +1,30 @@
+id: special-instructions.payment-change
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that changes how or where final pay is delivered — the payment method or the delivery.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds, requested_method, payment_method_on_file, allowed_methods]
+
+judgement:
+  - Recognise it — e.g. "Pay by live check, not direct deposit", "Mail to a new address", "Hold for pickup", "Send to HQ, attention HR".
+  - The method the instruction asks for, as requested_method (direct_deposit, check, live_check, or other for a delivery change such as a new address).
+
+cases:
+  - when: "'payment-change' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: "requested_method is not None and requested_method == payment_method_on_file"
+    then: {result: pass, payment_change_outcome: note, note: "The instruction asks for the method already on file"}
+  - when: "requested_method == 'live_check' and allowed_methods == ['live_check']"
+    then: {result: pass, payment_change_outcome: note, note: "The instruction asks for what the state already requires"}
+    why: e.g. "Live check — hand to employee at exit meeting" where the state requires a live check at discharge.
+  - when: "requested_method not in [None, 'other'] and requested_method not in allowed_methods"
+    then: {result: not available, payment_change_outcome: stop, outcome: stop,
+           reason: "The instruction asks for a method the state doesn't allow — the law wins; an analyst tells the client"}
+  - when: true
+    then: {result: not available, payment_change_outcome: stop, outcome: stop,
+           reason: "The instruction changes the method or delivery — it overrides payroll.payment-method; an analyst decides"}
+
+outputs: [result, payment_change_outcome, outcome, reason]

@@ -1,0 +1,53 @@
+id: validation.employee-identified
+version: 2
+agent: validation
+worker: identity
+purpose: Make sure the order is about one real employee of the order's company, who hasn't already left.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [named_employee_id, named_employee_name, assignee_id, record_found, name_and_id_match,
+         several_records_match, record_company, order_company, employment_status,
+         record_termination_date, termination_date, employment_type]
+
+judgement:
+  - The employee the order is about — never the assignee, who is the specialist handling the case.
+  - A rehired employee has an older terminated record and a current one — use the current record.
+
+checks:
+  - when: "employment_status == 'on_leave'"
+    then: {note: "On a leave of absence — still employed; Compliance raises its own exception"}
+  - when: "employment_status in ['suspended', 'inactive']"
+    then: {note: "Suspended or inactive, but not terminated"}
+  - when: "employment_type == 'contractor'"
+    then: {note: "A contractor — payroll flags the classification"}
+
+cases:
+  - when: "named_employee_id is None and named_employee_name is None"
+    then: {result: fail, flag: {kind: input, type: missingData, title: "The order doesn't name the employee",
+                                detail: {missing: [subject_employee_id]}}}
+  - when: "named_employee_id is None and several_records_match is True"
+    then: {result: not available, flag: {kind: input, title: "Several records match the name and there is no ID — pick the record"}}
+  - when: "named_employee_id is not None and named_employee_id == assignee_id"
+    then: {result: fail, flag: {kind: input, type: missingData, title: "The named person is the assignee, not the employee leaving",
+                                detail: {missing: [subject_employee_id]}}}
+  - when: "record_found is False"
+    then: {result: fail, outcome: stop, flag: {kind: input, type: missingData, title: "No record for the named employee",
+                                               detail: {missing: [subject_employee_id]}}}
+  - when: "name_and_id_match is False"
+    then: {result: fail, flag: {kind: input, type: recordMismatch, title: "The name and the ID point to different people — pick one"}}
+  - when: "record_company is not None and order_company is not None and record_company != order_company"
+    then: {result: fail, flag: {kind: decision, type: employeeMismatch, title: "The employee works for another company",
+                                detail: {employee_company: "= record_company", order_company: "= order_company"}}}
+  - when: "employment_status == 'terminated' and record_termination_date is not None and record_termination_date == termination_date"
+    then: {result: pass, flag: {kind: check, title: "The record already shows this termination — confirm it is this one, not an earlier one"}}
+  - when: "employment_status == 'terminated'"
+    then: {result: fail, outcome: stop, flag: {kind: decision, type: alreadyTerminated, title: "Already terminated",
+                                               detail: {status: "= employment_status"}}}
+  - when: true
+    then: {result: pass}
+
+outputs: [result, employment_status, outcome]
+
+to_confirm:
+  - Already terminated with the same date as this order — check flag (this rule), or stop?

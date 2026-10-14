@@ -1,0 +1,29 @@
+id: special-instructions.death
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that reports the employee's death.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds, termination_type, payee_on_death]
+
+judgement:
+  - Recognise it — e.g. "Pay final wages to the estate", "Mail to estate representative".
+
+cases:
+  - when: "'death' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: "termination_type == 'death'"
+    then: {result: not available, payee: "= payee_on_death", outcome: stop,
+           reason: "The payee changes to the estate or surviving spouse, as the state's rule says — an analyst handles the payment"}
+    why: The termination reason also says death — one case, raised once.
+  - when: true
+    then: {result: not available, payee: "= payee_on_death", outcome: stop,
+           reason: "The payee changes to the estate or surviving spouse, as the state's rule says — an analyst handles the payment",
+           flag: {kind: input, title: "An instruction reports a death but the termination reason doesn't — confirm the reason"}}
+
+outputs: [result, payee, outcome, reason]
+
+to_confirm:
+  - Should death be one shared rule, used both here and when only the termination reason says death?

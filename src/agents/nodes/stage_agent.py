@@ -13,6 +13,8 @@ from agents.graph.states import Flag, Need, Stage, State, feed_for, step_record
 from agents.model.gateway import ModelGateway, get_default_gateway
 from agents.queue.pool import HANDLERS
 from agents.queue.subtasks import dispatch
+from rules_engine.evaluate import all_rules
+from rules_engine.fetch import get_rules
 from agents.skills.client import MAX_TOKENS, run_skill
 from agents.skills.registry import ensure_bundle_published
 from agents.tools.bindings import complete_with_mcp_tools
@@ -24,6 +26,8 @@ logger = logging.getLogger(__name__)
 MAX_RUNS = 3
 # rounds of worker tasks an agent can send within one run
 MAX_WORKER_ROUNDS = 3
+# times an agent can fetch its rules within one run
+MAX_RULE_FETCHES = 2
 
 # who an agent can ask, and for what
 PROVIDERS = {
@@ -76,6 +80,12 @@ _ANSWER = (
 )
 
 
+_GET_RULES = (
+    "\n\nTo fetch your rules, return ONLY "
+    '{"get_rules": {<the case\'s attributes>}} and nothing else, as your skill says; '
+    "you will run again with them in `rules`."
+)
+
 _RERUN = (
     "\n\nYou ran before, and the output was found wrong: your previous answer is "
     "`previous_results.{bundle}` (marked `rerun`), your workers' results are still in "
@@ -94,7 +104,23 @@ def _fetched(state: State) -> list[dict]:
     return [{"request": n["request"], "answer": n["answer"]} for n in state.get("needs") or [] if n["status"] == "done"]
 
 
-def _input(state: State, bundle: str, can_ask: bool, requests: list[Need], worker_results: list[dict]) -> str:
+def _for_agent(rules: dict) -> dict:
+    """What the agent sees of its rules: the attributes, the state's law and which
+    rules each worker applies — not the rules themselves; its workers apply them."""
+    by_worker: dict[str, list[str]] = {}
+    for r in rules["rules"]:
+        by_worker.setdefault(r.get("worker"), []).append(r["id"])
+    return {"attributes": rules["attributes"], "state_law": rules["state_law"], "by_worker": by_worker}
+
+
+def _for_worker(rules: dict, kind: str) -> dict:
+    """A worker gets only its own rules (rules/*/*.yaml `worker:`)."""
+    worker = kind.split(".", 1)[1]
+    return {**rules, "rules": [r for r in rules["rules"] if r.get("worker") == worker]}
+
+
+def _input(state: State, bundle: str, can_ask: bool, requests: list[Need], worker_results: list[dict],
+           rules: dict | None = None) -> str:
     needs = state.get("needs") or []
     data: dict[str, Any] = {
         # the models don't know the date; deadlines and cut-offs are compared with it
@@ -118,13 +144,15 @@ def _input(state: State, bundle: str, can_ask: bool, requests: list[Need], worke
         ]
     if worker_results:
         data["worker_results"] = worker_results
+    if rules:
+        data["rules"] = _for_agent(rules)
     if can_ask:
         data["who_provides"] = {k: v for k, v in PROVIDERS.items() if k != bundle}
     return json.dumps(data, indent=2, default=str, ensure_ascii=False)
 
 
 def _extract(raw: str) -> Any:
-    for key in ("output", "needs", "worker_tasks"):
+    for key in ("output", "needs", "worker_tasks", "get_rules"):
         try:
             return extract_json(raw, key=key)
         except JSONParseError:
@@ -231,11 +259,16 @@ async def run_stage_agent(
     skill = await ensure_bundle_published(bundle, gateway=gateway)
     config = gateway.policy.get(bundle, gateway.policy["default"])
     mcp_calls: list[dict] = []
-    for round_ in range(MAX_WORKER_ROUNDS + 1):
-        user = _input(state, bundle, can_ask, requests, worker_results)
+    # the agents with rules are the ones rules/ names (rules/*/*.yaml `agent:`)
+    has_rules = any(r.get("agent") == bundle for r in all_rules())
+    rules = (state.get("rules") or {}).get(bundle)
+    fetches = rounds = 0
+    while True:
+        user = _input(state, bundle, can_ask, requests, worker_results, rules)
+        told = instruction + (_GET_RULES if has_rules else "")
         if with_tools:
             raw, calls = await complete_with_mcp_tools(
-                bundle, instruction, user, gateway, skill,
+                bundle, told, user, gateway, skill,
                 # write tools only once the reviewer has approved the run
                 read_only=(state.get("review") or {}).get("action") != "approve",
             )
@@ -245,25 +278,41 @@ async def run_stage_agent(
                 *skill, 
                 user, 
                 model=config["model"], 
-                additional_instructions=instruction, 
+                additional_instructions=told,
                 gateway=gateway,
                 max_tokens=config.get("max_tokens", MAX_TOKENS),
             ))["raw_response"]
         parsed = _extract(raw)
+        # the agent asked for its rules: fetch them by the attributes it gave and run it again
+        asked = parsed.get("get_rules") if isinstance(parsed, dict) else None
+        if has_rules and isinstance(asked, dict) and fetches < MAX_RULE_FETCHES:
+            fetches += 1
+            rules = get_rules(bundle, asked)
+            logger.info("[%s] fetched %d rules for %s", bundle, len(rules["rules"]), rules["attributes"])
+            worker_steps.append(step_record(
+                stage, agent, "Fetched the rules for the case", "Rules", result=f"{len(rules['rules'])} rules",
+                evidence={"attributes": rules["attributes"], "rules": [r["id"] for r in rules["rules"]],
+                          "state_law": rules["state_law"]},
+            ))
+            continue
         tasks = _worker_tasks(parsed, bundle)
         if not tasks:
             break
-        if round_ == MAX_WORKER_ROUNDS:
+        if rounds == MAX_WORKER_ROUNDS:
             raise AgentOutputError(f"{bundle}: still sending worker tasks after {MAX_WORKER_ROUNDS} rounds")
+        rounds += 1
         # every worker gets what already exists — the order, the fetched records, the
-        # earlier workers' results — so the agent never copies data into a task
+        # earlier workers' results, its own rules — so the agent never copies data into a task
         given = {
             "today": date.today().isoformat(),
             "service_order": state.get("service_order") or state.get("query"),
             "data": _fetched(state),
             "worker_results": list(worker_results),
         }
-        results = await dispatch([{**t, "input": {**t["input"], **given}} for t in tasks])
+        results = await dispatch([
+            {**t, "input": {**t["input"], **given, **({"rules": _for_worker(rules, t["kind"])} if rules else {})}}
+            for t in tasks
+        ])
         # the agent sees which worker ran for which case and what it returned
         worker_results += [{"kind": t["kind"], "case": t["input"].get("case"), **r} for t, r in zip(tasks, results)]
         worker_steps += [
@@ -275,6 +324,8 @@ async def run_stage_agent(
             for t, r in zip(tasks, results)
         ]
     kept = {"worker_results": {bundle: worker_results}} if worker_results else {}
+    if rules:
+        kept["rules"] = {bundle: rules}
 
     if can_ask and isinstance(parsed, dict) and parsed.get("needs"):
         needs = _new_needs(parsed["needs"], bundle, run)

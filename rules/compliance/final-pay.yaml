@@ -1,0 +1,52 @@
+id: compliance.final-pay
+version: 2
+agent: compliance
+worker: timing
+purpose: From the state's final-pay rule, work out when final pay is legally due, whether the regular payday meets it, which payment methods are allowed, and who is paid if the employee has died.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [termination_type, notice_given, rule_depends_on_notice, termination_date, today,
+         due, due_amount, due_text, allowed_methods, payee_on_death, regular_payday, period_end,
+         worked_in_two_states, state_rule_found]
+
+compute:
+  - final_pay_due_date: "due_date(due, due_amount, termination_date, regular_payday, period_end)"
+  - overdue: "None if final_pay_due_date is None else final_pay_due_date < today"
+
+checks:
+  - when: "overdue is True"
+    then: {note: "Final pay is already overdue; compliance.submit-by raises the risk flag"}
+  - when: "worked_in_two_states is True"
+    then: {flag: {kind: decision, title: "Worked in two states — the earlier due date is used; confirm"}}
+
+cases:
+  - when: "termination_type == 'death'"
+    then: {result: not available, death_payee: "= payee_on_death", outcome: stop,
+           reason: "The payee becomes the estate or surviving spouse, as the state's rule says — an analyst handles the payment"}
+  - when: "state_rule_found is False"
+    then: {result: not available, final_pay_due_date: null}
+    why: compliance.rule-applies flags the missing rule.
+  - when: "missing(due, termination_date)"
+    then: {result: not available, final_pay_due_date: null,
+           flag: {kind: input, type: missingData, title: "No final-pay deadline for this termination type", detail: {missing: [final_pay_rule]}}}
+    why: Never apply a discharge deadline to a resignation, or the reverse.
+  - when: "rule_depends_on_notice is True and notice_given == 'unknown'"
+    then: {result: not available, final_pay_due_date: null, outcome: wait,
+           reason: "Waiting for whether notice was given (validation.notice-given)"}
+  - when: "final_pay_due_date is None"
+    then: {result: not available, reason: "The deadline needs the pay calendar, which is not available"}
+  - when: "final_pay_due_date < regular_payday"
+    then: {result: pass, pay_timing: off-cycle,
+           flag: {kind: decision, type: complianceTiming, title: "Final pay is due before the regular payday — it must run off-cycle",
+                  detail: {rule: "= due_text", required_by: "= final_pay_due_date", planned: "= regular_payday"}}}
+  - when: true
+    then: {result: pass, pay_timing: on-cycle}
+
+outputs: [result, final_pay_due_date, regular_payday, pay_timing, overdue, allowed_methods, death_payee, due_text, outcome, reason]
+
+not_included: The time to submit by (compliance.submit-by); the method on file (payroll.payment-method).
+
+to_confirm:
+  - Count from the last day worked (team rule C4) or the termination date (this rule) when the state's rule names no date?
+  - Overdue — a note (team doc), or a flag?

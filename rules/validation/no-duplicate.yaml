@@ -1,0 +1,44 @@
+id: validation.no-duplicate
+version: 2
+agent: validation
+worker: validator
+purpose: Make sure no other open termination order exists for the same employee.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [subject_employee_id, termination_date]
+
+judgement:
+  - Whether another order amends this one (refers to it as a correction).
+  - Only orders for the same company count.
+
+lines:
+  - for_each: other_orders
+    each: [other_order_id, other_case_type, other_status, other_termination_date, amends_this_order]
+    cases:
+      - when: "lower(other_case_type) != 'offboarding'"
+        then: {duplicate: false}
+      - when: "lower(other_status) in ['closed', 'cancelled']"
+        then: {duplicate: false, note: "Another termination order exists but is closed — this may be a re-submission"}
+      - when: "amends_this_order is True"
+        then: {duplicate: false, note: "Another order amends this one"}
+      - when: "other_termination_date is not None and termination_date is not None and other_termination_date != termination_date"
+        then: {duplicate: true,
+               flag: {kind: decision, type: duplicateSO, title: "Another open termination order with a different date — decide which stands",
+                      detail: {other_order: "= other_order_id", other_date: "= other_termination_date"}}}
+      - when: true
+        then: {duplicate: true,
+               flag: {kind: decision, type: duplicateSO, title: "Another open termination order for the same employee",
+                      detail: {other_order: "= other_order_id"}}}
+    total:
+      duplicate_count: {count: duplicate, where: "duplicate is True"}
+
+cases:
+  - when: "subject_employee_id is None"
+    then: {result: not available}
+  - when: "duplicate_count > 0"
+    then: {result: fail, outcome: stop}
+  - when: true
+    then: {result: pass}
+
+outputs: [result, outcome]

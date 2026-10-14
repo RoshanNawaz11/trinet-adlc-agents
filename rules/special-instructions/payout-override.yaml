@@ -1,0 +1,29 @@
+id: special-instructions.payout-override
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that overrides the leave payout.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds, requested_payout, requirement]
+
+judgement:
+  - Recognise it — e.g. "Don't pay out PTO", "Pay out despite policy".
+  - What it asks for, as requested_payout (pay or no_pay).
+
+cases:
+  - when: "'payout-override' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: "requirement is None"
+    then: {result: not available, outcome: wait, reason: "Waiting for Compliance's payout requirement"}
+  - when: "requested_payout == 'pay' and requirement == 'required'"
+    then: {result: pass, note: "The instruction asks for the payout the state already requires"}
+  - when: "requested_payout == 'no_pay' and requirement == 'required'"
+    then: {result: not available, outcome: stop,
+           reason: "The instruction asks not to pay where the law requires the payout — the law wins; an analyst tells the client"}
+  - when: true
+    then: {result: not available, outcome: stop,
+           reason: "The instruction changes the payout — it overrides Compliance's requirement and payroll.leave-payout; an analyst decides"}
+
+outputs: [result, outcome, reason]

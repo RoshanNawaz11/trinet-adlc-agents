@@ -1,0 +1,30 @@
+id: special-instructions.additional-pay
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that adds pay to the final check, or asks for part of it on its own check.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds, added_pay_type, added_pay_amount, separate_check_requested]
+
+judgement:
+  - Recognise it — severance, bonus, commission, expense reimbursement; "Put the bonus on its own check".
+  - The pay type, the amount as stated (never estimated), and whether a separate check is asked for.
+
+cases:
+  - when: "'additional-pay' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: "added_pay_amount is None"
+    then: {result: not available,
+           flag: {kind: decision, title: "Additional pay with no amount stated — supply the amount"}}
+    why: Never estimate it.
+  - when: "separate_check_requested is True"
+    then: {result: pass, flags: [
+             {kind: decision, title: "Additional pay — confirm the amount"},
+             {kind: decision, title: "A separate check is asked for — confirm the split"}]}
+  - when: true
+    then: {result: pass, flag: {kind: decision, title: "Additional pay — confirm the amount"}}
+    why: Not part of payroll.earnings.
+
+outputs: [result, added_pay_type, added_pay_amount, separate_check_requested]

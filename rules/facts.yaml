@@ -1,0 +1,289 @@
+# Fact catalogue — the boxes the rules engine reads.
+#
+# Each fact has one exact name, what goes in it, its type, and who fills it in.
+# Rules and tables use only these names (or names a rule works out itself);
+# tests/test_rules.py fails on any other.
+#
+# type:   number | money | hours | date | datetime | text | yes_no | choice | list
+# per:    the list fact this is an item field of
+# source: who fills it in —
+#         data         read from a record as is
+#         <agent>      another agent's result (validation, compliance, payroll)
+#         extract      the LLM reads text and gives the value
+#         derived      worked out from other facts
+#         <rule/table> the output of a rule or table
+# null always means "not available" — never a guess.
+
+# ── case types (docs/rules/case-types/) ──────────────────────────────────
+
+state:            {meaning: the state the employee works in — the same value as work_state, type: choice, values: two-letter state code, source: validation.case-facts}
+pay_group:        {meaning: how often the employee is paid, type: choice, values: [weekly, biweekly, semi-monthly, monthly], source: "data — matched to its pay calendar by dates, never by its name"}
+employment_type:  {meaning: the kind of employment, type: choice, values: [regular, temporary, part-time, contractor], source: data — payroll and HR records}
+termination_type: {meaning: why the employment ends, type: choice, values: [voluntary, involuntary, death, unknown], note: a layoff is involuntary, source: validation.termination-type}
+
+# ── the order ─────────────────────────────────────────────────────────────
+
+case_type:          {meaning: the order's case type, type: text, source: data — the service order}
+order_status:       {meaning: the order's status, type: text, source: data — the service order}
+order_company:      {meaning: the company on the order, type: text, source: data — the service order}
+assignee_id:        {meaning: the specialist the order is assigned to — never the employee leaving, type: text, source: data — the service order}
+named_employee_id:  {meaning: the ID of the employee the order is about, type: text, source: extract — the order}
+named_employee_name: {meaning: the name of the employee the order is about, type: text, source: extract — the order}
+employees_on_order: {meaning: how many employees the order terminates, type: number, source: extract — the order}
+description_says_termination: {meaning: whether the description clearly says this is a termination, type: yes_no, source: "extract — the description, read only when the case type is missing"}
+case_type_and_description_disagree: {meaning: whether the case type and the description disagree, type: yes_no, source: extract}
+order_reverses_termination: {meaning: whether the order reverses a termination, type: yes_no, source: extract — e.g. "Cancel the termination"}
+order_has_other_work: {meaning: whether the order mixes the termination with other work, type: yes_no, source: extract}
+eligible:           {meaning: whether the order is a termination to work now, type: yes_no, source: validation.order-eligible — null when unresolved}
+order_hours:        {meaning: final-period hours the client's form states, type: hours, source: data — the client's form; null when it states none}
+order_total_pay:    {meaning: the total pay amount the order states, type: money, source: data — the service order; null when it states none}
+order_deadline:     {meaning: "the order's own deadline, with its time zone", type: datetime, source: data — the service order; null when its time zone isn't stated}
+bill_benefits_to_client: {meaning: whether the order asks to bill benefits to the client, type: yes_no, source: data — the client's form}
+
+# ── validation: who, when, why ────────────────────────────────────────────
+
+record_found:       {meaning: whether a record exists for the named employee, type: yes_no, source: data — the employee record}
+name_and_id_match:  {meaning: whether the order's name and ID point to the same record, type: yes_no, source: derived}
+several_records_match: {meaning: whether several records match the name when there is no ID, type: yes_no, source: data}
+record_company:     {meaning: the company on the employee record, type: text, source: data — the employee record}
+employment_status:  {meaning: the status on the employee record, type: choice, values: [active, on_leave, suspended, inactive, terminated], source: data — the current record of a rehired employee}
+record_termination_date: {meaning: the termination date already on the employee record, type: date, source: data — null when there is none}
+subject_employee_id: {meaning: the ID of the employee leaving, type: text, source: validation.case-facts}
+work_state:         {meaning: the state the employee works in, type: choice, values: two-letter state code, source: "validation.case-facts — the order, else the employee record"}
+home_state:         {meaning: the state the employee lives in, type: choice, values: two-letter state code, source: data — the employee record}
+location_remote:    {meaning: whether the employee's location is remote, type: yes_no, source: data — the employee record}
+records_disagree_on_work_state: {meaning: whether the HR and payroll records give different work states, type: yes_no, source: derived}
+termination_date:   {meaning: the termination date, type: date, source: validation.case-facts}
+last_day_worked:    {meaning: the employee's last day of work, type: date, source: validation.case-facts}
+termination_reason_text: {meaning: the termination reason as written, type: text, source: validation.case-facts}
+reason_field_and_description_disagree: {meaning: whether the reason field and the description give different reasons, type: yes_no, source: extract}
+field_description_conflicts: {meaning: the facts on which an order field and the description disagree, type: list, source: extract — empty when none}
+ambiguous_dates:    {meaning: the dates that can be read two ways (e.g. 03/04), type: list, source: extract — empty when none}
+record_mismatches:  {meaning: the facts on which the order and the employee record disagree, type: list, item_facts: [mismatch_field, order_value, record_value], source: derived — empty when none}
+mismatch_field:     {meaning: the fact that disagrees, type: text, per: record_mismatches, source: derived}
+order_value:        {meaning: the order's value, type: text, per: record_mismatches, source: data}
+record_value:       {meaning: the record's value, type: text, per: record_mismatches, source: data}
+missing_facts:      {meaning: the required case facts that are missing, type: list, source: validation.case-facts}
+complete:           {meaning: whether every required case fact is present, type: yes_no, source: validation.case-facts}
+case_facts_confirmed: {meaning: whether Validation confirmed the employee and the dates, type: yes_no, source: validation — null until it has run}
+hire_date:          {meaning: the hire date — the latest one for a rehired employee, type: date, source: data — the employee record}
+today:              {meaning: today's date, type: date, source: derived — the run's date}
+now:                {meaning: "the current time, with its time zone", type: datetime, source: derived — the run's time}
+notice_given:       {meaning: whether notice was given, type: choice, values: [yes, no, unknown], source: extract — yes or no only when the order says so}
+rule_depends_on_notice: {meaning: whether the state's final-pay rule depends on notice, type: yes_no, source: validation.notice-given}
+other_orders:       {meaning: the employee's other service orders at the same company, type: list, item_facts: [other_order_id, other_case_type, other_status, other_termination_date, amends_this_order], source: data — the service orders}
+other_order_id:     {meaning: the other order's ID, type: text, per: other_orders, source: data}
+other_case_type:    {meaning: the other order's case type, type: text, per: other_orders, source: data}
+other_status:       {meaning: the other order's status, type: text, per: other_orders, source: data}
+other_termination_date: {meaning: the other order's termination date, type: date, per: other_orders, source: data}
+amends_this_order:  {meaning: whether the other order corrects this one, type: yes_no, per: other_orders, source: extract}
+
+# ── pay period ────────────────────────────────────────────────────────────
+
+calendar_found:     {meaning: whether a pay calendar exists for the pay group, type: yes_no, source: data — the pay calendars}
+calendar_reaches_last_day: {meaning: whether the calendar covers the last day worked, type: yes_no, source: derived}
+periods_containing_last_day: {meaning: how many regular pay periods contain the last day worked, type: number, source: derived — start ≤ last day worked ≤ end}
+period_start:       {meaning: the start of the period containing the last day worked, type: date, source: data — the pay calendar}
+period_end:         {meaning: the end of that period, type: date, source: data — the pay calendar}
+regular_payday:     {meaning: "that period's regular payday, as the calendar gives it", type: date, source: data — the pay calendar}
+change_deadline:    {meaning: the last time changes can go into that period's pay run, type: datetime, source: data — the pay calendar}
+pay_group_changed_in_period: {meaning: whether the pay group changed during the final period, type: yes_no, source: data}
+pay_cycle:          {meaning: whether that period's pay run is still open, type: choice, values: [on-cycle, off-cycle, unknown], source: validation.pay-period}
+
+# ── state law (rules/tables/state.yaml) ───────────────────────────────────
+
+requirement:
+  meaning: what the work state's law says about paying out unused leave
+  type: choice
+  values:
+    required: the law requires the payout
+    policy: the company policy decides
+    policy_else_required: the company policy decides; if the policy is silent, it is required
+    not_required: no payout
+  source: tables.state
+
+due:
+  meaning: when final pay is legally due, as a deadline form
+  type: choice
+  values:
+    immediately: on the termination date
+    within_hours: within due_amount hours of the termination
+    calendar_days: within due_amount calendar days
+    next_regular_payday: by the next regular payday in the employee's pay calendar
+    end_of_pay_period: at the end of the pay period
+  source: tables.state
+
+due_amount:       {meaning: the number that goes with due — hours or days; null for forms without one, type: number, source: tables.state}
+due_text:         {meaning: the state's own wording of the deadline, type: text, source: tables.state}
+allowed_methods:  {meaning: the payment methods the state allows for this termination type, type: list, values: [direct_deposit, direct_deposit_with_consent, check, live_check], source: tables.state}
+payee_on_death:   {meaning: who the state says final wages go to when the employee has died, type: text, source: tables.state}
+
+# ── compliance ────────────────────────────────────────────────────────────
+
+state_rule_found:   {meaning: whether tables.state has a row for this state and termination type, type: yes_no, source: compliance.rule-applies}
+local_jurisdiction: {meaning: the local jurisdiction of the work location, type: text, source: data — null when none}
+local_rule_found:   {meaning: whether the rule catalogue has a rule for the local jurisdiction, type: yes_no, source: data — the rule catalogue}
+rules_conflict:     {meaning: whether two current rules for the state say different things, type: yes_no, source: data — the rule catalogue}
+worked_in_two_states: {meaning: whether the employee worked in two states in the final period, type: yes_no, source: data — timecards and work locations}
+final_pay_due_date: {meaning: when final pay is legally due, type: date, source: compliance.final-pay}
+pay_timing:         {meaning: whether final pay can go in the regular pay run, type: choice, values: [on-cycle, off-cycle, unknown], source: compliance.final-pay}
+overdue:            {meaning: whether the due date has already passed, type: yes_no, source: compliance.final-pay}
+death_payee:        {meaning: who is paid when the employee has died, type: text, source: compliance.final-pay}
+policy_on_file:     {meaning: whether a company payout policy is on file, type: yes_no, source: data — company policies}
+policy_pays_out_any: {meaning: whether the company policy pays out any unused leave at separation, type: yes_no, source: extract — the policy text}
+pto_payout:         {meaning: what the law requires for unused leave, type: choice, values: [required, policy, policy_else_required, not_required, unknown], source: compliance.pto-payout}
+health_coverage_on_last_day: {meaning: whether health coverage was active on the last day worked, type: yes_no, source: data — benefits coverage; null when missing}
+coverage_end_date:  {meaning: the date health coverage ends on separation, type: date, source: data — benefits coverage}
+headcount:          {meaning: the client's number of employees, type: number, source: data — the client account}
+federal_min_headcount: {meaning: the headcount from which federal continuation applies, type: number, source: data — the rule catalogue}
+plan_notice_days:   {meaning: days to notify the plan, type: number, source: data — the rule catalogue}
+election_notice_days: {meaning: days to send the election notice, type: number, source: data — the rule catalogue}
+cobra_count_from:   {meaning: the date the continuation deadlines count from, type: date, source: "extract — the date the rule names, usually the last day worked"}
+state_continuation_rule_found: {meaning: whether the state has a continuation rule for small employers, type: yes_no, source: data — the rule catalogue}
+dismissed_for_gross_misconduct: {meaning: whether the employee was dismissed for gross misconduct, type: yes_no, source: extract — the termination reason}
+cobra:              {meaning: the continuation duty, type: choice, values: [required, state_continuation, not_required, not_applicable, unknown], source: compliance.cobra}
+plan_notice_due:    {meaning: when the plan must be notified, type: date, source: compliance.cobra}
+election_notice_due: {meaning: when the election notice is due, type: date, source: compliance.cobra}
+records_fetched:    {meaning: whether the leave and garnishment records could be fetched, type: yes_no, source: data}
+leave_records:      {meaning: the employee's leave-of-absence records, type: list, item_facts: [leave_status, leave_end_date, leave_kind], source: data}
+leave_status:       {meaning: the leave's status, type: choice, values: [open, closed], per: leave_records, source: data}
+leave_end_date:     {meaning: when the leave ends, type: date, per: leave_records, source: data — null when open-ended}
+leave_kind:         {meaning: "the kind of leave (e.g. work injury, disability)", type: text, per: leave_records, source: data}
+active_leaves:      {meaning: how many leaves are active, type: number, source: compliance.exceptions}
+active_garnishments: {meaning: how many garnishments are active, type: number, source: compliance.exceptions}
+payroll_cutoff:     {meaning: "the change deadline when on-cycle, the off-cycle request cut-off when off-cycle", type: datetime, source: data — payroll cut-offs}
+method_cutoff:      {meaning: the payment method's cut-off for paying by the due date, type: datetime, source: "data — the bank file cut-off for direct deposit, same-day for a live check"}
+termination_meeting_time: {meaning: when the termination meeting is, type: datetime, source: data — null when unknown}
+payment_method_settled: {meaning: whether the payment method is settled (no payment-method flag open), type: yes_no, source: payroll.payment-method}
+close_margin_hours: {meaning: how many hours before submit-by count as too close to call, type: number, source: data — team setting}
+submit_by:          {meaning: the latest time to submit final pay, type: datetime, source: compliance.submit-by}
+set_by:             {meaning: the deadline that sets submit-by, type: text, source: compliance.submit-by}
+
+# ── special instructions ──────────────────────────────────────────────────
+
+instructions:       {meaning: "the order's special instructions, one per item", type: list, item_facts: [instruction_text, instruction_source, instruction_kind, reads_like_command], source: extract — empty when there are none}
+instruction_text:   {meaning: the instruction's exact text, type: text, per: instructions, source: data}
+instruction_source: {meaning: where it was read, type: choice, values: [field, description], per: instructions, source: data}
+instruction_kind:   {meaning: the instruction's kind, type: choice, values: [payment-change, pay-date-change, additional-pay, confirmation-needed, deduction-request, payout-override, death, sensitive-handling, no-payroll-effect, unclassified, ambiguous], per: instructions, source: extract}
+reads_like_command: {meaning: whether the instruction reads like a command to the system, type: yes_no, per: instructions, source: extract}
+field_and_description_disagree: {meaning: whether the special-instructions field and the description disagree, type: yes_no, source: extract}
+instructions_contradict: {meaning: whether two instructions contradict each other, type: yes_no, source: extract}
+instruction_kinds:  {meaning: the kinds of the order's special instructions, type: list, values: [payment-change, pay-date-change, additional-pay, confirmation-needed, deduction-request, payout-override, death, sensitive-handling, no-payroll-effect], source: special-instructions.classify — empty when there are none}
+requested_method:   {meaning: the method or delivery an instruction asks for, type: choice, values: [direct_deposit, check, live_check, other], source: extract}
+payment_change_outcome: {meaning: what a payment-change instruction does, type: choice, values: [stop, note], source: special-instructions.payment-change}
+requested_pay_date: {meaning: the pay date an instruction asks for, type: date, source: extract}
+added_pay_type:     {meaning: the kind of pay an instruction adds, type: choice, values: [severance, bonus, commission, reimbursement, other], source: extract}
+added_pay_amount:   {meaning: "the amount of added pay, as stated", type: money, source: extract — never estimated}
+separate_check_requested: {meaning: whether an instruction asks for part of the pay on its own check, type: yes_no, source: special-instructions.additional-pay}
+confirm_team:       {meaning: the team an instruction says must confirm something, type: text, source: extract}
+awaiting_confirmation: {meaning: "the inputs waiting for another team's confirmation, as fact names", type: list, source: special-instructions.confirmation-needed — empty when none}
+requested_deduction: {meaning: what an instruction asks to deduct, type: text, source: extract}
+requested_deduction_amount: {meaning: "the amount, as stated", type: money, source: extract}
+requested_payout:   {meaning: what an instruction asks for the leave payout, type: choice, values: [pay, no_pay], source: extract}
+payee:              {meaning: "who is paid, when a death is reported", type: text, source: special-instructions.death}
+
+# ── payroll: inputs and earnings ──────────────────────────────────────────
+
+pay_type:           {meaning: hourly or salaried, type: choice, values: [hourly, salaried], source: data — the payroll record}
+pay_rate:           {meaning: the employee's pay rate, type: money, source: data — the payroll record}
+withholding:        {meaning: the withholding for the final pay, type: choice, values: [on_record, exempt], source: data — null when neither}
+final_period_hours: {meaning: hours worked in the final pay period, type: hours, source: "data — the timecard; 0 is a value, not missing"}
+conflicting_inputs: {meaning: the pay inputs two sources give different values for, type: list, source: extract — empty when none}
+missing_inputs:     {meaning: the pay inputs that are missing, type: list, source: payroll.inputs-present}
+exempt:             {meaning: whether the employee is exempt from overtime, type: yes_no, source: data — never inferred from pay type}
+salary_per_period:  {meaning: the full-period salary, type: money, source: data — the recorded salary and pay frequency}
+proration_fraction: {meaning: "the share of the period's salary earned, by the approved proration method", type: number, source: derived — the method from the payroll system or company policy}
+timecard_approved:  {meaning: whether the final timecard is approved, type: yes_no, source: data — the timecard}
+final_period_already_paid: {meaning: whether the employee was already paid through the last day worked, type: yes_no, source: data — the payroll system}
+hours_impossible:   {meaning: whether the hours exceed what can be worked, type: yes_no, source: extract}
+time_records_match_pay_type: {meaning: whether the time records fit the pay type, type: yes_no, source: derived}
+earning_lines:      {meaning: the final period's earning lines, type: list, item_facts: [line_kind, line_hours, line_rate], source: data — the timecard; a rate change splits a line}
+line_kind:          {meaning: the kind of earning line, type: choice, values: [regular, paid_leave, overtime], per: earning_lines, source: data}
+line_hours:         {meaning: the line's hours, type: hours, per: earning_lines, source: data}
+line_rate:          {meaning: "the line's rate — for overtime, the overtime rate the payroll system pays", type: money, per: earning_lines, source: data}
+regular_pay:        {meaning: regular earnings for the final period, type: money, source: payroll.earnings}
+overtime_pay:       {meaning: overtime earnings for the final period, type: money, source: payroll.earnings}
+gross_pay:          {meaning: regular plus overtime pay, type: money, source: payroll.earnings}
+
+# ── payroll: leave ────────────────────────────────────────────────────────
+
+service_months:     {meaning: how long the employee worked for the company, type: number, unit: months, source: derived — whole months from hire_date to last_day_worked}
+dismissed_for_cause: {meaning: whether the employee was dismissed for cause, type: yes_no, source: extract — the termination reason}
+on_leave_of_absence: {meaning: whether the employee is on a leave of absence, type: yes_no, source: data — the employee's status}
+payout_rate:        {meaning: "the hourly rate for paying out leave, on the last day worked", type: money, source: "data — for a salaried employee, the hourly equivalent by the approved conversion"}
+payout_rate_effective_date: {meaning: the date payout_rate took effect, type: date, source: data}
+policy_min_service_months: {meaning: the service the policy requires before leave is paid out, type: number, unit: months, source: extract — 0 when it sets none}
+policy_pays_out_sick: {meaning: whether the policy pays out sick and floating-holiday leave, type: yes_no, source: extract — null when it doesn't say}
+policy_forfeits_for_cause: {meaning: whether the policy forfeits leave on dismissal for cause, type: yes_no, source: extract — null when it doesn't say}
+policy_unlimited_leave: {meaning: whether the company gives unlimited leave, type: yes_no, source: extract}
+leave_balances:     {meaning: one entry per leave type the employee holds, type: list, item_facts: [leave_type, balance_hours, balance_as_of, other_balance_hours, adjustment_reason, plan_max_hours, policy_pays_out, already_paid_out], source: data — the payroll system's final-pay leave records}
+leave_type:         {meaning: the kind of leave, type: choice, values: [vacation, pto, sick, floating_holiday], per: leave_balances, source: data}
+balance_hours:      {meaning: "unused hours for the final period, including any manual adjustment", type: hours, per: leave_balances, source: "data — the payroll system's final-pay balance; when another record differs, still this one"}
+balance_as_of:      {meaning: the date the balance is as of, type: date, per: leave_balances, source: data}
+other_balance_hours: {meaning: "the balance another record shows, when it differs", type: hours, per: leave_balances, source: data — null when the records agree}
+adjustment_reason:  {meaning: the reason for a manual adjustment, type: text, per: leave_balances, source: data — null when none; "" when there is one without a reason}
+plan_max_hours:     {meaning: the most hours the plan lets an employee hold, type: hours, per: leave_balances, source: data — null when it sets none}
+policy_pays_out:    {meaning: whether the plan pays out unused leave at separation, type: yes_no, per: leave_balances, source: data — null when the plan doesn't say}
+already_paid_out:   {meaning: whether this leave was already paid out, type: yes_no, per: leave_balances, source: data}
+leave_payout:       {meaning: the leave payout on the final paycheck, type: money, source: payroll.leave-payout}
+
+# ── payroll: deductions and benefits ──────────────────────────────────────
+
+deduction_lines:    {meaning: the recurring deductions for this pay, type: list, item_facts: [deduction_type, deduction_amount, before_tax, already_taken], source: data — the payroll system}
+deduction_type:     {meaning: the kind of deduction, type: choice, values: [benefit, retirement, other], per: deduction_lines, source: data}
+deduction_amount:   {meaning: "the amount for this pay, as the payroll system gives it", type: money, per: deduction_lines, source: data}
+before_tax:         {meaning: whether it is taken before tax, type: yes_no, per: deduction_lines, source: data}
+already_taken:      {meaning: whether an earlier pay already took it for the final period, type: yes_no, per: deduction_lines, source: extract}
+garnishment_orders: {meaning: the employee's garnishment orders, type: list, item_facts: [garnishment_amount, garnishment_shortfall, set_up_in_payroll, garnishment_status, garnishment_kind], source: data}
+garnishment_amount: {meaning: "what the order takes from this pay, by the payroll system's rules", type: money, per: garnishment_orders, source: data}
+garnishment_shortfall: {meaning: what the order can't take because of its limit, type: money, source: data — per order; payroll.deductions totals it}
+set_up_in_payroll:  {meaning: whether the payroll system withholds for the order yet, type: yes_no, per: garnishment_orders, source: data}
+garnishment_status: {meaning: the order's status, type: choice, values: [active, received, released, satisfied], per: garnishment_orders, source: data}
+garnishment_kind:   {meaning: "the order's kind (child support, creditor, tax levy)", type: text, per: garnishment_orders, source: data}
+negative_leave_hours: {meaning: hours of leave used before they were earned, type: hours, source: derived — from leave_balances; 0 when none}
+deduct_negative_allowed: {meaning: whether the record allows deducting a negative leave balance, type: yes_no, source: data — the leave plan}
+signed_agreement_on_file: {meaning: whether a signed agreement allows the deduction, type: yes_no, source: extract}
+deductions:         {meaning: the total deductions from final pay, type: money, source: payroll.deductions}
+before_tax_deductions: {meaning: the deductions taken before tax, type: money, source: payroll.deductions}
+after_tax_deductions: {meaning: the deductions taken after tax, type: money, source: payroll.deductions}
+garnishments:       {meaning: the total garnishments from final pay, type: money, source: payroll.deductions}
+eligible_on_record: {meaning: the benefits eligibility on the record, type: yes_no, source: data — the benefits status}
+benefits_eligible:  {meaning: whether the employee is benefits-eligible for the final period, type: yes_no, source: payroll.benefits — null when ambiguous}
+fte:                {meaning: the employee's full-time equivalent, type: number, source: data}
+plan_min_fte:       {meaning: the plan's minimum FTE for eligibility, type: number, source: data — the plan record}
+coverage_lines:     {meaning: the employee's benefit coverages, type: list, item_facts: [coverage_name, employer_premium, active_in_period, waived, changed_in_period], source: data}
+coverage_name:      {meaning: the coverage, type: text, per: coverage_lines, source: data}
+employer_premium:   {meaning: the employer premium for the active part of the final period, type: money, per: coverage_lines, source: data — the payroll system}
+active_in_period:   {meaning: whether the coverage was active in the final period, type: yes_no, per: coverage_lines, source: data}
+waived:             {meaning: whether the employee waived the coverage, type: yes_no, per: coverage_lines, source: data}
+changed_in_period:  {meaning: whether the coverage changed during the final period, type: yes_no, per: coverage_lines, source: data}
+employee_share_premium: {meaning: the employee's share of the premiums for the final period, type: money, source: data}
+benefits_billed_to_client: {meaning: what the client is billed for benefits, type: money, source: payroll.benefits}
+
+# ── payroll: net pay and checks against the system ────────────────────────
+
+system_taxes:       {meaning: "the payroll system's tax figures for this pay, total", type: money, source: data — the payroll system; null when it has none}
+system_net_pay:     {meaning: the payroll system's net pay for this pay, type: money, source: data}
+system_total_gross: {meaning: "the payroll system's total gross for this pay, leave payout included", type: money, source: data}
+system_deductions:  {meaning: the payroll system's deductions for this pay, type: money, source: data}
+system_leave_payout: {meaning: the payroll system's leave payout, type: money, source: data}
+system_figures_stale: {meaning: "whether the system's figures predate the latest change to hours, rate or leave", type: yes_no, source: derived}
+inputs_provisional: {meaning: whether any input to net pay is provisional, type: yes_no, source: derived — from earnings and leave-payout}
+taxes:              {meaning: the taxes on final pay, type: money, source: payroll.net-pay}
+unrecoverable:      {meaning: deductions that can't be taken from final pay, type: money, source: payroll.net-pay}
+net_pay:            {meaning: the final net pay, type: money, source: payroll.net-pay}
+net_match:          {meaning: whether our net pay matches the system's within $0.01, type: yes_no, source: payroll.matches-system}
+gross_match:        {meaning: whether our gross matches the system's within $0.01, type: yes_no, source: payroll.matches-system}
+order_match:        {meaning: whether the order's total matches the system's, type: yes_no, source: payroll.matches-system}
+differing_line:     {meaning: the line that explains a difference, type: choice, values: [taxes, deductions, leave_payout, gross], source: payroll.matches-system}
+
+# ── payroll: payment method ───────────────────────────────────────────────
+
+payment_method_on_file: {meaning: the payment method on file, type: choice, values: [direct_deposit, check, live_check], source: data — "Direct Deposit" → direct_deposit}
+method_active:      {meaning: whether the method on file is active, type: yes_no, source: data}
+prenote_verified:   {meaning: whether the direct deposit account is verified, type: yes_no, source: data}
+deposit_consent:    {meaning: whether the employee consented to direct deposit, type: yes_no, source: data}
+arrives_by_due_date: {meaning: whether the method's cut-off reaches the due date, type: yes_no, source: derived}
+other_method_arrives: {meaning: whether another method would still arrive in time, type: yes_no, source: derived}
+mailing_address_current: {meaning: whether the mailing address on record is current, type: yes_no, source: data}
+payment_method:     {meaning: the method final pay is paid by, type: choice, values: [direct_deposit, check, live_check], source: payroll.payment-method}

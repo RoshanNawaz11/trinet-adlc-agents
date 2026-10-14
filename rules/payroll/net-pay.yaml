@@ -1,0 +1,50 @@
+id: payroll.net-pay
+version: 2
+agent: payroll-calculation
+worker: reconcile
+purpose: Work out the taxes, anything that can't be taken from the final paycheck, and the final net pay.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [termination_type, gross_pay, leave_payout, system_taxes, deductions, garnishments,
+         garnishment_shortfall, separate_check_requested, worked_in_two_states, inputs_provisional]
+
+judgement:
+  - Which of the payroll system's tax figures belong to this pay; a tax exemption on record is already in them.
+
+compute:
+  - net_before: "gross_pay + leave_payout - system_taxes - deductions - garnishments"
+  - unrecoverable: "round(max(0, -net_before) + max(0, garnishment_shortfall), 2)"
+  - net_pay_amount: "None if net_before is None else round(max(0, net_before), 2)"
+
+checks:
+  - when: "unrecoverable > 0"
+    then: {flag: {kind: decision, type: unrecoverable, title: "Part of the deductions can't be taken from final pay",
+                  detail: {unrecoverable: "= unrecoverable"}}}
+  - when: "inputs_provisional is True"
+    then: {provisional: true}
+  - when: "worked_in_two_states is True"
+    then: {flag: {kind: decision, title: "Worked in two states — confirm the state tax split"}}
+
+cases:
+  - when: "termination_type == 'death'"
+    then: {result: not available, net_pay: null, outcome: stop, reason: "Tax treatment changes for wages paid after death"}
+  - when: "system_taxes is None"
+    then: {result: not available, taxes: null, net_pay: null,
+           flag: {kind: decision, title: "The payroll system has no tax figures for this pay"}}
+    why: Never compute a tax rate here.
+  - when: "missing(gross_pay, leave_payout, deductions, garnishments)"
+    then: {result: not available, net_pay: null}
+  - when: "separate_check_requested is True"
+    then: {result: pass, taxes: "= system_taxes", net_pay: "= net_pay_amount",
+           flag: {kind: decision, title: "Part of the pay goes on a separate check — confirm taxes and net pay per check"}}
+  - when: true
+    then: {result: pass, taxes: "= system_taxes", net_pay: "= net_pay_amount"}
+    why: Zero is a valid net pay — e.g. already paid through the last day; no flag just because it is zero.
+
+outputs: [result, taxes, unrecoverable, net_pay, provisional, outcome, reason]
+
+not_included: Checking against the payroll system's figure (payroll.matches-system); how it is paid (payroll.payment-method).
+
+to_confirm:
+  - Taxes from the payroll system (this rule), or computed — before-tax deductions reduce federal tax and FICA, payouts at 22% supplemental, Social Security 6.2%, Medicare 1.45%, state tax by work state (team rule P7)?

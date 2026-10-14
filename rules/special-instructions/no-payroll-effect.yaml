@@ -1,0 +1,21 @@
+id: special-instructions.no-payroll-effect
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that has nothing to do with pay.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds]
+
+judgement:
+  - Recognise it — e.g. "Revoke systems access", "Laptop returned".
+  - If it could affect pay after all (e.g. "Laptop not returned" may mean a deduction request), classify it as that kind instead.
+
+cases:
+  - when: "'no-payroll-effect' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: true
+    then: {result: pass, outcome: note, note: "An instruction with no payroll effect"}
+
+outputs: [result, outcome]

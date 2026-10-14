@@ -1,0 +1,77 @@
+id: payroll.earnings
+version: 2
+agent: payroll-calculation
+worker: earnings
+purpose: Calculate the regular and overtime earnings for the final pay period, based on the employee's pay type.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [employment_type, termination_type, pay_type, exempt, salary_per_period, proration_fraction,
+         timecard_approved, final_period_already_paid, hours_impossible, time_records_match_pay_type,
+         worked_in_two_states, instruction_kinds]
+
+judgement:
+  - The proration method from the payroll system or company policy, applied to give proration_fraction; apply FTE only if the method requires it.
+  - A pay rate that changed during the period → split the line at the change, each part with its own rate.
+  - Whether hours look impossible (more than can be worked in a day or period).
+
+lines:
+  - for_each: earning_lines
+    each: [line_kind, line_hours, line_rate]
+    cases:
+      - when: "line_kind == 'overtime' and exempt is True"
+        then: {line_amount: null,
+               flag: {kind: decision, title: "Overtime lines for an exempt employee — review against the earning policy"}}
+        why: Never infer exemption status from pay type.
+      - when: "missing(line_hours, line_rate)"
+        then: {line_amount: null}
+      - when: true
+        then: {line_amount: "= line_hours * line_rate"}
+        why: Overtime uses the overtime rate the payroll system pays — never an assumed multiplier.
+    total:
+      line_regular_pay: {sum: line_amount, where: "line_kind in ['regular', 'paid_leave']"}
+      overtime_pay: {sum: line_amount, where: "line_kind == 'overtime'"}
+
+compute:
+  - salaried_pay: "salary_per_period * proration_fraction"
+
+checks:
+  - when: "timecard_approved is False"
+    then: {provisional: true, flag: {kind: check, title: "The final timecard is not approved; calculated from the submitted hours"}}
+  - when: "time_records_match_pay_type is False"
+    then: {flag: {kind: check, title: "The pay type doesn't match the time records; the payroll record's pay type is used"}}
+  - when: "worked_in_two_states is True"
+    then: {flag: {kind: decision, title: "Worked in two states — confirm the split of wages by state"}}
+  - when: "'additional-pay' in instruction_kinds"
+    then: {note: "Additional pay from a special instruction is not part of earnings"}
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, outcome: stop,
+           flag: {kind: decision, title: "Confirm the contractor classification"}}
+  - when: "final_period_already_paid is True"
+    then: {result: pass, regular_pay: 0, overtime_pay: 0, gross_pay: 0, reason: "The final period was already paid"}
+    why: Never pay it twice.
+  - when: "hours_impossible is True"
+    then: {result: not available, regular_pay: null, overtime_pay: null, gross_pay: null,
+           flag: {kind: decision, title: "Hours look impossible — confirm them"}}
+  - when: "pay_type == 'hourly' and line_regular_pay is None"
+    then: {result: not available, regular_pay: null, gross_pay: null}
+  - when: "pay_type == 'hourly'"
+    then: {result: pass, regular_pay: "= line_regular_pay", gross_pay: "= line_regular_pay + overtime_pay"}
+  - when: "pay_type == 'salaried' and salaried_pay is None"
+    then: {result: not available, regular_pay: null, gross_pay: null}
+    why: Never assume a proration method.
+  - when: "pay_type == 'salaried'"
+    then: {result: pass, regular_pay: "= salaried_pay", gross_pay: "= salaried_pay + overtime_pay"}
+  - when: true
+    then: {result: not available, regular_pay: null, overtime_pay: null, gross_pay: null}
+    why: inputs-present names the missing input.
+
+outputs: [result, regular_pay, overtime_pay, gross_pay, provisional, outcome, reason]
+
+not_included: Leave payout, taxes, deductions and any additional pay (severance, bonus, commission).
+
+to_confirm:
+  - Our agents today prorate salary by days worked ÷ working days and allow rate × multiplier for overtime; this rule takes both from the payroll system.
+  - The employee has died — calculate as usual; special-instructions.death stops the case for the payee.

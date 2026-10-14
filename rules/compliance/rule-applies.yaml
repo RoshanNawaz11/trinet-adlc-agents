@@ -1,0 +1,45 @@
+id: compliance.rule-applies
+version: 2
+agent: compliance
+worker: timing
+purpose: Make sure an approved rule exists for this case's state and termination type — the row in tables/state — before any deadline or payout is worked out.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [state, termination_type, employment_type, due_text, requirement, local_jurisdiction,
+         local_rule_found, rules_conflict, worked_in_two_states]
+
+judgement:
+  - Rules come only from tables/state and the rule catalogue, never from memory.
+  - Whether the work location has a local jurisdiction with its own rule.
+
+compute:
+  - state_rule_found: "requirement is not None or due_text is not None"
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, reason: "Employee rules don't apply to a contractor; payroll flags the classification"}
+  - when: "missing(state, termination_type)"
+    then: {result: not available}
+    why: No flag of its own — Validation names the missing fact.
+  - when: "state_rule_found is False"
+    then: {result: fail, outcome: stop,
+           flag: {kind: input, type: missingData, title: "No final-pay rule for this state", detail: {missing: [state_rule]}}}
+    why: Never fill the gap from memory.
+  - when: "local_jurisdiction is not None and local_rule_found is False"
+    then: {result: fail, outcome: stop,
+           flag: {kind: input, type: missingData, title: "No rule for the local jurisdiction", detail: {missing: [local_rule]}}}
+  - when: "rules_conflict is True"
+    then: {result: not available,
+           flag: {kind: decision, title: "Two current rules for this state say different things — pick one"}}
+  - when: "worked_in_two_states is True"
+    then: {result: pass,
+           flag: {kind: decision, title: "Worked in two states — confirm which state's rule applies"}}
+  - when: true
+    then: {result: pass}
+
+outputs: [result, state_rule_found, outcome]
+
+to_confirm:
+  - Effective and expiry dates, employment types covered and minimum headcount per rule — the state table doesn't hold them yet.
+  - No rule — missingData (this rule), or a separate noRule flag (team doc)?

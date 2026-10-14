@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from agents.model.gateway import get_default_gateway
+from rules_engine.decide import ask_for, decide
 from agents.skills.client import MAX_TOKENS, run_skill
 from agents.skills.registry import ensure_bundle_published
 from json_utils import JSONParseError, extract_json
@@ -44,3 +45,19 @@ async def run_checker(bundle: str, worker: str, i: dict[str, Any]) -> dict[str, 
         "steps": findings["steps"],
         "flags": findings.get("flags") or [],
     }
+
+
+async def run_with_rules(bundle: str, worker: str, i: dict[str, Any]) -> dict[str, Any]:
+    """A worker whose rules are in rules/: the model reports the facts, the rules decide.
+    The case's attributes and state law, which the agent fetched with the rules, are
+    facts already; the model doesn't get the rules — it doesn't apply them."""
+    fetched = i.get("rules") or {}
+    known = {k: v for k, v in {**(fetched.get("attributes") or {}), **(fetched.get("state_law") or {})}.items()
+             if v is not None}
+    task = {"worker": worker, **{k: v for k, v in i.items() if k != "rules"}}
+    answer = await run_worker_skill(bundle, task, ask_for(bundle, worker), key="facts")
+    if not isinstance(answer, dict) or not isinstance(answer.get("facts"), dict):
+        raise JSONParseError(f"{bundle} {worker}: answer must be {{'facts': {{...}}}}")
+    sources = {**(answer.get("sources") or {}), **dict.fromkeys(known, "fetched with the rules")}
+    return {"case": i.get("case"), "worker": worker,
+            **decide(bundle, worker, {**answer["facts"], **known}, sources)}

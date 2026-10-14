@@ -1,0 +1,44 @@
+id: validation.order-eligible
+version: 2
+agent: validation
+worker: identity
+purpose: Decide whether a service order is a termination that should be worked now.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [case_type, order_status, description_says_termination, case_type_and_description_disagree,
+         employees_on_order, order_reverses_termination, order_has_other_work]
+
+judgement:
+  - From the description, only when the case type is missing — whether it clearly says this is a termination.
+  - Whether the order reverses a termination ("Cancel the termination", "Employee is staying").
+  - How many employees the order terminates; whether it mixes in other work (e.g. an address change).
+
+compute:
+  - is_termination: "lower(case_type) == 'offboarding' if case_type is not None else description_says_termination is True"
+
+checks:
+  - when: "order_has_other_work is True"
+    then: {note: "The order mixes a termination with other work; only the termination is worked"}
+
+cases:
+  - when: "order_reverses_termination is True"
+    then: {result: not applicable, eligible: false, outcome: stop, reason: "The order reverses a termination — an analyst handles it"}
+  - when: "case_type_and_description_disagree is True"
+    then: {result: not available, eligible: null,
+           flag: {kind: input, title: "The case type and the description disagree — pick one"}}
+  - when: "case_type is None and description_says_termination is not True"
+    then: {result: not available, eligible: null,
+           flag: {kind: input, type: missingData, title: "Case type missing", detail: {missing: [case_type]}}}
+  - when: "is_termination is False"
+    then: {result: not applicable, eligible: false, reason: "Not a termination — no agent works it"}
+  - when: "lower(order_status) in ['closed', 'cancelled']"
+    then: {result: fail, eligible: false, outcome: stop,
+           flag: {kind: decision, type: orderNotOpen, title: "The order is not open", detail: {status: "= order_status"}}}
+  - when: "employees_on_order > 1"
+    then: {result: fail, eligible: false, outcome: stop, reason: "One order terminates several employees — each needs their own order"}
+  - when: true
+    then: {result: pass, eligible: true}
+    why: Any status other than closed or cancelled is open — pending and on hold included.
+
+outputs: [result, eligible, case_type, order_status, outcome, reason]

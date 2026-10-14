@@ -1,0 +1,20 @@
+id: special-instructions.sensitive-handling
+version: 2
+agent: validation
+worker: validator
+purpose: Handle an instruction that calls for sensitive handling of the case.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [instruction_kinds]
+
+judgement:
+  - Recognise it — e.g. "Legal hold", "Do not contact the employee".
+
+cases:
+  - when: "'sensitive-handling' not in (instruction_kinds or [])"
+    then: {result: not applicable}
+  - when: true
+    then: {result: not available, outcome: stop, reason: "The case needs sensitive handling — an analyst handles it"}
+
+outputs: [result, outcome, reason]

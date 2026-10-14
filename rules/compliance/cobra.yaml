@@ -1,0 +1,53 @@
+id: compliance.cobra
+version: 2
+agent: compliance
+worker: obligations
+purpose: Work out the health-coverage continuation duties after termination, and their deadlines.
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [employment_type, termination_type, health_coverage_on_last_day, coverage_end_date, last_day_worked,
+         headcount, federal_min_headcount, plan_notice_days, election_notice_days, cobra_count_from,
+         state_continuation_rule_found, dismissed_for_gross_misconduct]
+
+judgement:
+  - The notice counts and the minimum headcount come from the rule catalogue, never from memory.
+  - The date the rule counts from (cobra_count_from) — the last day worked, or the date coverage is lost when the rule says so.
+
+compute:
+  - plan_notice_due: "add_days(cobra_count_from, plan_notice_days)"
+  - election_notice_due: "add_days(cobra_count_from, election_notice_days)"
+
+checks:
+  - when: "dismissed_for_gross_misconduct is True"
+    then: {flag: {kind: decision, title: "Dismissed for gross misconduct — the law may allow denying continuation; decide"}}
+  - when: "termination_type == 'death'"
+    then: {note: "Covered dependants are owed the notices"}
+  - when: "coverage_end_date > last_day_worked"
+    then: {note: "Coverage ends after the last day worked; the notices count from the date the rule names"}
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable, cobra: not_applicable}
+  - when: "health_coverage_on_last_day is None"
+    then: {result: pass, cobra: unknown, note: "Coverage data is missing — passed to the Benefits team"}
+  - when: "health_coverage_on_last_day is False"
+    then: {result: pass, cobra: not_applicable}
+  - when: "headcount is None"
+    then: {result: not available, cobra: unknown,
+           flag: {kind: input, type: missingData, title: "Client headcount missing", detail: {missing: [headcount]}}}
+  - when: "headcount >= federal_min_headcount"
+    then: {result: pass, cobra: required}
+  - when: "state_continuation_rule_found is True"
+    then: {result: pass, cobra: state_continuation, plan_notice_due: null, election_notice_due: null,
+           note: "Below the federal minimum — the state continuation rule's notices apply"}
+  - when: true
+    then: {result: pass, cobra: not_required, plan_notice_due: null, election_notice_due: null,
+           note: "Below the federal minimum and no state continuation rule"}
+
+outputs: [result, cobra, plan_notice_due, election_notice_due]
+
+not_included: Premiums and who is billed (payroll.benefits, payroll.deductions). An employer-paid premium under a severance agreement is a special instruction.
+
+to_confirm:
+  - Coverage data missing — unknown (this rule), or stop?

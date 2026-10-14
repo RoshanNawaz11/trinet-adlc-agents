@@ -1,0 +1,108 @@
+# State table — what each work state's law says, by termination type.
+# Looked up by [state, termination_type]; the matching row's values become
+# facts (see rules/facts.yaml). No row → every value is null: not available,
+# never another state's rule.
+#
+# Source: the legal rule records in the mock data (one per state).
+
+id: tables.state
+keys: [state, termination_type]
+values: [requirement, due, due_amount, due_text, allowed_methods, payee_on_death]
+
+rows:
+  - {state: CA, termination_type: involuntary, requirement: required, due: immediately,
+     due_amount: null, due_text: "Final wages due immediately at the time of discharge.",
+     allowed_methods: [live_check],
+     payee_on_death: null}
+  - {state: CA, termination_type: voluntary, requirement: required, due: within_hours,
+     due_amount: 72, due_text: "Final wages due within 72 hours; on the last day if 72 hours notice was given.",
+     allowed_methods: [check, direct_deposit_with_consent],
+     payee_on_death: null}
+  - {state: CA, termination_type: death, requirement: required, due: null,
+     due_amount: null, due_text: null,
+     allowed_methods: [check],
+     payee_on_death: "The surviving spouse or estate representative, on request."}
+
+  - {state: TX, termination_type: involuntary, requirement: policy, due: calendar_days,
+     due_amount: 6, due_text: "Final wages due within 6 calendar days of discharge.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: TX, termination_type: voluntary, requirement: policy, due: next_regular_payday,
+     due_amount: null, due_text: "Final wages due on the next regularly scheduled payday following resignation.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: TX, termination_type: death, requirement: policy, due: null,
+     due_amount: null, due_text: null,
+     allowed_methods: [check],
+     payee_on_death: "The estate or surviving spouse."}
+
+  - {state: NY, termination_type: involuntary, requirement: policy_else_required, due: next_regular_payday,
+     due_amount: null, due_text: "Final wages due by the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: NY, termination_type: voluntary, requirement: policy_else_required, due: next_regular_payday,
+     due_amount: null, due_text: "Final wages due by the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: NY, termination_type: death, requirement: policy_else_required, due: null,
+     due_amount: null, due_text: null,
+     allowed_methods: [check],
+     payee_on_death: "The estate or designated beneficiary."}
+
+  - {state: IL, termination_type: involuntary, requirement: required, due: next_regular_payday,
+     due_amount: null, due_text: "Final compensation due at separation if possible, no later than the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: IL, termination_type: voluntary, requirement: required, due: next_regular_payday,
+     due_amount: null, due_text: "Final compensation due no later than the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: IL, termination_type: death, requirement: required, due: null,
+     due_amount: null, due_text: null,
+     allowed_methods: [check],
+     payee_on_death: "The estate or surviving spouse."}
+
+  - {state: WA, termination_type: involuntary, requirement: policy, due: end_of_pay_period,
+     due_amount: null, due_text: "Final wages due at the end of the established pay period.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: WA, termination_type: voluntary, requirement: policy, due: end_of_pay_period,
+     due_amount: null, due_text: "Final wages due at the end of the established pay period.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: WA, termination_type: death, requirement: policy, due: null,
+     due_amount: null, due_text: null,
+     allowed_methods: [check],
+     payee_on_death: "The surviving spouse or estate."}
+
+  - {state: FL, termination_type: involuntary, requirement: policy, due: next_regular_payday,
+     due_amount: null, due_text: "Final wages due by the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: FL, termination_type: voluntary, requirement: policy, due: next_regular_payday,
+     due_amount: null, due_text: "Final wages due by the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: FL, termination_type: death, requirement: policy, due: null,
+     due_amount: null, due_text: null,
+     allowed_methods: [check],
+     payee_on_death: "The estate or surviving spouse."}
+
+  - {state: AZ, termination_type: involuntary, requirement: policy, due: next_regular_payday,
+     due_amount: null, due_text: "Final wages due by the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: AZ, termination_type: voluntary, requirement: policy, due: next_regular_payday,
+     due_amount: null, due_text: "Final wages due by the next regular payday.",
+     allowed_methods: [check, direct_deposit],
+     payee_on_death: null}
+  - {state: AZ, termination_type: death, requirement: policy, due: null,
+     due_amount: null, due_text: null,
+     allowed_methods: [check],
+     payee_on_death: "The estate or surviving spouse."}
+
+# To confirm with the team:
+# - CA voluntary: due on the last day when 72 hours' notice was given — needs
+#   notice_given as a key, or a second row.
+# - Death rows: the data gives only who is paid, not a deadline or a method;
+#   "check" is assumed for the estate — confirm.
