@@ -139,7 +139,8 @@ async def run_query(
     fetched first) or, as a fallback, on a text description of it. On resume,
     `decision` is the reviewer's approval or rejection of the run (graph.states.Review)."""
     thread_id = thread_id or str(uuid.uuid4())
-    run_dir(thread_id, service_order_id)  # the run's folder, named before anything logs to it
+    service_order = await fetch_service_order(service_order_id) if service_order_id and not resume else None
+    run_dir(thread_id, service_order)  # the run's folder, named after the order before anything logs to it
     session_id.set(thread_id)  # LiteLLM logs this as the session on every call of this run
     attach_metadata(thread_id=thread_id, resume=resume, service_order_id=service_order_id)
     config = _config(thread_id)
@@ -173,7 +174,6 @@ async def run_query(
                     f"Thread {thread_id} is paused mid-run (next={list(snapshot.next)}) — "
                     "use --resume, not a fresh query, or you will restart instead of continue."
                 )
-            service_order = await fetch_service_order(service_order_id) if service_order_id else None
             employee = employee_name(service_order)
             payload = _initial_state(thread_id, query, service_order_id, service_order)
             await report_progress(

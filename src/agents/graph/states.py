@@ -25,6 +25,8 @@ class StepRecord(TypedDict):
     result: NotRequired[str]
     evidence: NotRequired[dict[str, Any]]
     feed: NotRequired[FeedKind]  # absent = not shown in the Fleet Activity Feed
+    rule: NotRequired[str]      # the rule the step applied, e.g. "compliance.final-pay"
+    pipeline: NotRequired[str]  # the pipeline stage the rule names (graph/pipeline.py key); absent = its agent's
 
 
 # an issue an agent found, shown to the reviewer at the end of the run
@@ -37,6 +39,8 @@ class Flag(TypedDict):
     recommendation: NotRequired[str | None]  # what Execution does about it if the run is approved; null for a data problem
     resolved: bool              # true only once merged into another flag
     decisions: list[dict[str, Any]]  # what happened to it, e.g. {"action": "merged", "into": ...}
+    rule: NotRequired[str]      # the rule that raised it, from detail.rule
+    pipeline: NotRequired[str]  # as on StepRecord
 
 
 # the reviewer's one decision on the whole run, before execution

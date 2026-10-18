@@ -1,7 +1,8 @@
 id: special-instructions.pay-date-change
-version: 2
+version: 3
 agent: validation
 worker: validator
+pipeline: distribution
 purpose: Handle an instruction that changes when final pay is paid.
 
 applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}

@@ -4,7 +4,7 @@ description: >
   Use this skill when the Compliance Agent receives a termination service
   order, when another agent asks it a legal or regulatory question (a rule, a
   deadline, a requirement), or when one of Compliance's workers (timing,
-  obligations, exceptions) receives a task. Finds the approved rules that
+  obligations) receives a task. Finds the approved rules that
   apply to the termination and works out the deadlines and obligations they
   create. Never use it to establish the facts of the case, calculate pay, or
   execute anything. Read its files with the text editor's view command only;
@@ -28,6 +28,9 @@ follow it — the Compliance Agent part of this file is not for you.
 - The order's `assignedTo` is the TriNet specialist handling the case, not the
   employee the case is about.
 - Never turn `unknown` or `not available` into a pass.
+- Don't check or flag pay amounts (net pay, taxes, leave payout amounts) or
+  the facts of the case — Payroll Calculation and Validation do. If your
+  `task` asks for one, skip that part and say in a step whose it is.
 - Don't write or run code. Open skill files only to read them; everything else
   is already in your input — read it and answer directly.
 
@@ -46,9 +49,9 @@ order your worker file gives. For each rule:
    check that holds, then the first case that holds. A later rule can use an
    earlier one's outputs.
 3. One step per rule: `check` = the rule's id, `result` = the case's
-   `result`, `evidence` = the rule's `version`, each input with its value and
-   source, which case held, each computed value, and the case's `outcome`
-   and `reason`.
+   `result`, `outcome` = the case's `outcome` (null when it has none),
+   `evidence` = the rule's `version`, each input with its value and source,
+   which case held, each computed value, and the case's `reason`.
 4. Each flag the rule raises (its checks' and its case's) is one flag:
    `type` = the flag's `type`, or the rule's id when it has none; `title` as
    the rule gives it; `detail` = its `detail` plus its `kind` and the rule's
@@ -57,14 +60,13 @@ order your worker file gives. For each rule:
 
 ## Files
 
-- `workers/timing.md`, `workers/obligations.md`, `workers/exceptions.md` — one
-  file per worker
+- `workers/timing.md`, `workers/obligations.md` — one file per worker
 
 ## Termination
 
 The rules that decide when final pay is legally due, whether unused PTO must be
-paid out, whether the regular payroll would pay in time, what COBRA requires,
-and whether anything needs a special human decision.
+paid out, whether the regular payroll would pay in time, and what COBRA
+requires.
 
 ```yaml
 facts:                        # from validation (previous_results.validation.cases.termination)
@@ -83,13 +85,10 @@ records:                      # ask execution
   - {name: pay_calendar,      keys: [subject_employee_id]}    # the employee's regular paydays
   - {name: payroll_cutoffs,   keys: [subject_employee_id]}    # payroll and bank cut-offs, with `as_of`
   - {name: benefits_coverage, keys: [subject_employee_id]}    # health coverage on the last day worked
-  - {name: leave_of_absence,  keys: [subject_employee_id]}
-  - {name: garnishments,      keys: [subject_employee_id]}
 
 rules:                        # fetched (see Fetching the rules), in this order per worker
   timing:      [compliance.rule-applies, compliance.final-pay, compliance.submit-by]
   obligations: [compliance.pto-payout, compliance.cobra]
-  exceptions:  [compliance.exceptions]
 ```
 
 If the regular payday is later than the legal due date, final pay must run
@@ -103,7 +102,6 @@ The rules raise these; their `detail` as the rule gives it, or:
 - `missingData` — `{"missing": [<facts or rules>]}`
 - `complianceTiming` — `{"rule", "required_by", "planned"}`
 - `cutoffRisk` — `{"submit_by", "now", "set_by"}`
-- `complianceException` — `{"kind": "leave" | "garnishment", …}`
 
 ### Output fields (`output.cases.termination`)
 
@@ -123,8 +121,6 @@ The rules raise these; their `detail` as the rule gives it, or:
 - `cobra` — `required`, `state_continuation`, `not_required`,
   `not_applicable` or `unknown`
 - `plan_notice_due`, `election_notice_due` — ISO dates, or null
-- `exceptions` — `[{"kind": "leave" | "garnishment", "detail"}]`, from
-  `compliance.exceptions`'s flags; empty when none
 
 ---
 
@@ -159,7 +155,6 @@ workers, and reading them costs a turn each.
 |---|---|---|
 | `compliance.timing` | legal due dates, standard pay date, timing conflict, payroll/bank cut-offs | `case`, `facts` |
 | `compliance.obligations` | unused PTO payout, COBRA | `case`, `facts` |
-| `compliance.exceptions` | active leave of absence, garnishment | `case`, `facts` |
 
 `facts` is the termination facts from Validation plus the `jurisdiction` you
 decided — nothing else. The service order, `rules` and the records in `data`
@@ -179,7 +174,7 @@ Each worker returns `findings`, `steps` and `flags`. Don't invent other kinds.
    `needs`. Name the record and the employee, e.g. "payroll cut-offs for
    EMP-7". A failed need means not available: don't ask again.
 5. **Check.** Once `rules` is in your input and the records are in `data`,
-   send all three workers in one response.
+   send both workers in one response.
 
    **Never send workers before steps 3 and 4 are done.** `rules` must be in
    your input, and every record listed above either in `data` or in
@@ -211,8 +206,7 @@ Return ONLY this; you run again with `worker_results`:
 ```json
 {"worker_tasks": [
   {"kind": "compliance.timing",      "input": {"case": "termination", "facts": {"jurisdiction": {"state": "OR", "local": null}, "termination_date": "...", ...}}},
-  {"kind": "compliance.obligations", "input": {"case": "termination", "facts": {...}}},
-  {"kind": "compliance.exceptions",  "input": {"case": "termination", "facts": {...}}}
+  {"kind": "compliance.obligations", "input": {"case": "termination", "facts": {...}}}
 ]}
 ```
 

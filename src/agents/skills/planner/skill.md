@@ -91,12 +91,17 @@ output is wrong or missing. The agents you plan see their previous answer and
 fix only what their task names; the others keep their results.
 
 - `work` and `priority` stay as in `previous_plan`.
-- `plan` holds every agent that must run again, in pipeline order, and always
-  `execution` last — it rebuilds the package from the fixed results.
-- Each task names that agent's issues: the field, the value found, and what
-  was expected — e.g. "net_pay is missing: the reconcile step never ran;
-  run it and report net pay", or "pay_date is 2026-10-15 but compliance's
-  final_pay_due_date is 2026-10-12; use the due date."
+- `plan` holds only the agents named as an issue's `owner`, in pipeline
+  order, and always `execution` last — it rebuilds the package from the fixed
+  results. An agent that owns no issue doesn't run again.
+- Each task names only that agent's own issues: the field, the value found,
+  and what was expected — e.g. "net_pay is missing: the reconcile step never
+  ran; run it and report net pay", or "pay_date is 2026-10-15 but
+  compliance's final_pay_due_date is 2026-10-12; use the due date."
+- Never give an agent work outside its role in the table above — a pay
+  amount goes only to `payroll-calculation`, never to `validation`.
+- A flag's `recommendation` is for `execution` to apply to the package, not
+  new work for the agent that raised the flag.
 - Never return an empty plan on a re-plan.
 
 ## Output

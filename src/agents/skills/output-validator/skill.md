@@ -53,7 +53,9 @@ its source, the source agent when its own result is missing a value.
 A field that is null because its source is null:
 
 - **not** an issue when a flag explains it (e.g. a `missingData` flag naming
-  the data that was never available) — running again won't change it;
+  the data that was never available, or a `netPayMismatch` flag) — running
+  again won't change it, and the reviewer resolves the flag. This holds even
+  when you think the source agent should have resolved it;
 - an issue owned by the source agent when **no** flag explains it — the agent
   didn't finish its job (e.g. a step that should have produced the value
   never ran).

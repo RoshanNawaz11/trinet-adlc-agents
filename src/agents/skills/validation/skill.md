@@ -27,6 +27,9 @@ follow it — the Validation Agent part of this file is not for you.
 - Never turn `unknown` or `not available` into a pass.
 - Don't flag deadlines, due dates or lateness (final pay overdue, the order's
   SLA) — Compliance does. Validation checks the facts, not the timing.
+- Don't check or flag pay amounts (net pay, taxes, leave payout) — Payroll
+  Calculation does. If your `task` asks for one, skip that part and say in a
+  step that it is for `payroll-calculation`.
 - **The rules are in `rules`** — the approved rules for this case and the work
   state's law, fetched by the Validation Agent (`rules.how_to_read` says how to
   read them). Apply them exactly; where this file differs, `rules` wins. Put
@@ -47,8 +50,9 @@ order your worker file gives. For each rule:
    check that holds, then the first case that holds. A later rule can use an
    earlier one's outputs.
 3. One step per rule: `check` = the rule's id, `result` = the case's
-   `result`, `evidence` = the rule's `version`, each input with its value and
-   source, which case held, and the case's `outcome` and `reason`.
+   `result`, `outcome` = the case's `outcome` (null when it has none),
+   `evidence` = the rule's `version`, each input with its value and source,
+   which case held, and the case's `reason`.
 4. Each flag the rule raises (its checks' and its case's) is one flag:
    `type` = the flag's `type`, or the rule's id when it has none; `title` as
    the rule gives it; `detail` = its `detail` plus its `kind` and the rule's
@@ -86,6 +90,7 @@ rules:                        # fetched after extract (see Fetching the rules), 
   identity:  [validation.order-eligible, validation.employee-identified]
   validator: [validation.case-facts, validation.termination-type, validation.dates-valid,
               validation.no-duplicate, validation.notice-given, validation.pay-period,
+              validation.leave-of-absence,
               special-instructions.classify, then each other special-instructions rule]
 ```
 
@@ -103,6 +108,7 @@ The rules raise these; their `detail` as the rule gives it, or:
 - `recordMismatch` — `{"field": <name>, "order": <value>, "record": <value>}`
 - `invalidDates` — `{"hire_date", "last_day_worked", "termination_date"}`
 - `duplicateSO` — `{"other_order": <id>}`
+- `leaveOfAbsence` — `{"leave_kind", "end_date"}`
 
 ### Output fields (`output.cases.termination`)
 
@@ -159,7 +165,7 @@ workers, and reading them costs a turn each.
 |---|---|---|
 | `validation.extract` | pulls the termination facts out of the order | `cases: ["termination"]` |
 | `validation.identity` | who the employee is, same company, order still open, employment status | `case`, `universal` |
-| `validation.validator` | required fields, termination type, date order, order vs record disagreements, duplicates, notice, pay period, special instructions | `case` |
+| `validation.validator` | required fields, termination type, date order, order vs record disagreements, duplicates, notice, pay period, leave of absence, special instructions | `case` |
 
 Give a worker only that. The service order, the records in `data` and the
 earlier workers' results (the extractor's facts) are attached to every task
@@ -175,7 +181,8 @@ for you — never copy facts or records into a task. Each checker returns
    the checkers find the work state or termination type is different.
 3. **Get the records.** You have no tools. Look in `data` first; otherwise ask
    `execution` in `needs` for what the checks use: the employee's record, open
-   Offboarding orders for that employee, the payroll calendar. Name the
+   Offboarding orders for that employee, the payroll calendar, the employee's
+   leave-of-absence records. Name the
    employee from the extracted facts. If the identity is ambiguous, don't pick
    a candidate — raise a flag. A failed need means not available: don't ask
    again.

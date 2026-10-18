@@ -1,5 +1,5 @@
 id: validation.employee-identified
-version: 2
+version: 3
 agent: validation
 worker: identity
 purpose: Make sure the order is about one real employee of the order's company, who hasn't already left.
@@ -16,7 +16,7 @@ judgement:
 
 checks:
   - when: "employment_status == 'on_leave'"
-    then: {note: "On a leave of absence — still employed; Compliance raises its own exception"}
+    then: {note: "On a leave of absence — still employed; validation.leave-of-absence flags it"}
   - when: "employment_status in ['suspended', 'inactive']"
     then: {note: "Suspended or inactive, but not terminated"}
   - when: "employment_type == 'contractor'"

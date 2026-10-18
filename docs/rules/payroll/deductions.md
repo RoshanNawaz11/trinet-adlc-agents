@@ -39,6 +39,10 @@ The case is a termination, and inputs-present passed.
 - Take each active order's amount as the payroll
   system's rules give it, in the order it sets.
 - Never compute a legal limit yourself.
+- Input flag `garnishmentConfirm` per order — the
+  analyst confirms the withholding with the Garnishment
+  Team, or enters the amount the team gives.
+- A released or satisfied order takes nothing.
 
 ### Negative leave balance
 - Deduct it only when the record says negative balances
@@ -78,10 +82,11 @@ e.g. coverage runs to the end of the month.
 - Check flag when the system gives no figure.
 
 ### A garnishment order is not yet set up
-Compliance found an active order the payroll system
-doesn't withhold for yet.
+An active order the payroll system doesn't withhold
+for yet.
 - That order's amount: not available.
-- Flag — an analyst sets it up before payment.
+- Flag `garnishmentConfirm` — the analyst gets the
+  amount from the Garnishment Team.
 
 ### Garnishments together exceed the limit
 - Take them in the payroll system's order, up to its
@@ -126,5 +131,4 @@ Return:
 ## To confirm with the team
 - Negative leave: is the record's setting enough, or is
   a signed agreement always needed?
-- Flag names for the missing garnishment setup and the
-  missing coverage figure.
+- Flag name for the missing coverage figure.

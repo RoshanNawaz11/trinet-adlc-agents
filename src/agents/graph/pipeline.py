@@ -1,9 +1,10 @@
 """The business pipeline the console renders.
 
-The UI does not invent these stages. Every run carries this list, and a step
-or flag is placed by matching its agent name, then its stage, against the
-names below. Agents keep doing their own work; this only says which pipeline
-stage that work belongs to.
+The UI does not invent these stages. Every run carries this list. A step or
+flag whose rule names a stage (rules/*/*.yaml `pipeline:`) carries it as
+`pipeline`; any other is placed by matching its agent name, then its stage,
+against the names below. Agents keep doing their own work; this only says
+which pipeline stage that work belongs to.
 """
 
 from __future__ import annotations

@@ -20,6 +20,7 @@ id: payroll.leave-payout       # <folder>.<file name>
 version: 2                     # raise it on every change
 agent: payroll-calculation     # the agent that runs it (its skill name)
 worker: leave                  # the worker, when the agent has workers
+pipeline: validation           # optional: the UI stage, when not its agent's (graph/pipeline.py keys)
 purpose: ...                   # one or two sentences, for people
 applies_to: {...}              # case types this rule covers — see below
 inputs: [...]                  # case facts it reads (rules/facts.yaml)

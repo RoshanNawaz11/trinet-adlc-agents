@@ -15,7 +15,8 @@ from json_utils import JSONParseError, extract_json
 _CHECKER_JSON = (
     "Your final answer must be a single JSON object: "
     '{"findings": {"<output field>": <value or null>}, '
-    '"steps": [{"check": "<name>", "result": "pass" | "fail" | "not available" | "<value>", "evidence": {...}}], '
+    '"steps": [{"check": "<name>", "result": "pass" | "fail" | "not available" | "<value>", '
+    '"outcome": "stop" | "wait" | "note" | null, "evidence": {...}}], '
     '"flags": [{"type": "<flag>", "title": "<one line>", "detail": {...}}]}. '
     "Return ONLY JSON — no preamble, no markdown fences."
 )

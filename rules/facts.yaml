@@ -144,13 +144,17 @@ dismissed_for_gross_misconduct: {meaning: whether the employee was dismissed for
 cobra:              {meaning: the continuation duty, type: choice, values: [required, state_continuation, not_required, not_applicable, unknown], source: compliance.cobra}
 plan_notice_due:    {meaning: when the plan must be notified, type: date, source: compliance.cobra}
 election_notice_due: {meaning: when the election notice is due, type: date, source: compliance.cobra}
-records_fetched:    {meaning: whether the leave and garnishment records could be fetched, type: yes_no, source: data}
+leave_records_fetched: {meaning: whether the leave records could be fetched, type: yes_no, source: data}
 leave_records:      {meaning: the employee's leave-of-absence records, type: list, item_facts: [leave_status, leave_end_date, leave_kind], source: data}
 leave_status:       {meaning: the leave's status, type: choice, values: [open, closed], per: leave_records, source: data}
 leave_end_date:     {meaning: when the leave ends, type: date, per: leave_records, source: data — null when open-ended}
 leave_kind:         {meaning: "the kind of leave (e.g. work injury, disability)", type: text, per: leave_records, source: data}
-active_leaves:      {meaning: how many leaves are active, type: number, source: compliance.exceptions}
-active_garnishments: {meaning: how many garnishments are active, type: number, source: compliance.exceptions}
+active_leaves:      {meaning: how many leaves are active, type: number, source: validation.leave-of-absence}
+regular_runs_found: {meaning: whether the regular payroll runs for the employee's pay group could be read, type: yes_no, source: data}
+regular_runs:       {meaning: "the regular (on-cycle) payroll runs, not yet paid, that still include the employee", type: list, item_facts: [run_pay_date, run_status], source: data — the payroll system}
+run_pay_date:       {meaning: the run's pay date, type: date, per: regular_runs, source: data}
+run_status:         {meaning: the run's status, type: choice, values: [open, processing], per: regular_runs, source: data}
+runs_to_remove:     {meaning: how many regular runs still include the employee, type: number, source: payroll.on-cycle-removed}
 payroll_cutoff:     {meaning: "the change deadline when on-cycle, the off-cycle request cut-off when off-cycle", type: datetime, source: data — payroll cut-offs}
 method_cutoff:      {meaning: the payment method's cut-off for paying by the due date, type: datetime, source: "data — the bank file cut-off for direct deposit, same-day for a live check"}
 termination_meeting_time: {meaning: when the termination meeting is, type: datetime, source: data — null when unknown}

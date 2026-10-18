@@ -1,7 +1,8 @@
 id: compliance.pto-payout
-version: 2
+version: 3
 agent: compliance
 worker: obligations
+pipeline: payroll
 purpose: Work out what the law requires for unused leave at termination.
 
 applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}

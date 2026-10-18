@@ -1,7 +1,8 @@
 id: compliance.final-pay
-version: 2
+version: 3
 agent: compliance
 worker: timing
+pipeline: validation
 purpose: From the state's final-pay rule, work out when final pay is legally due, whether the regular payday meets it, which payment methods are allowed, and who is paid if the employee has died.
 
 applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}

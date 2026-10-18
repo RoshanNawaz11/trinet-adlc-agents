@@ -1,7 +1,8 @@
 id: payroll.payment-method
-version: 2
+version: 3
 agent: payroll-calculation
 worker: reconcile
+pipeline: distribution
 purpose: Make sure the final pay can be paid the way it is set up, as the state allows, and in time.
 
 applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}

@@ -51,7 +51,7 @@ order-eligible passed.
 ### On a leave of absence
 On leave is still employed.
 - result: pass
-- Note it; Compliance raises its own exception.
+- Note it; validation.leave-of-absence flags it.
 
 ### Suspended or inactive, but not terminated
 - result: pass

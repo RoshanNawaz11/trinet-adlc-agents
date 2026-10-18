@@ -63,6 +63,7 @@ def decide(agent: str, worker: str | None, facts: Facts, sources: dict | None = 
         steps.append({
             "check": record["rule"],
             "result": record["result"],
+            "outcome": record["outcome"],
             "evidence": {k: record[k] for k in ("version", "case", "reason", "inputs", "lines", "notes", "provisional")},
         })
         flags += [

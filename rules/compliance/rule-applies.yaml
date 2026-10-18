@@ -1,7 +1,8 @@
 id: compliance.rule-applies
-version: 2
+version: 3
 agent: compliance
 worker: timing
+pipeline: validation
 purpose: Make sure an approved rule exists for this case's state and termination type — the row in tables/state — before any deadline or payout is worked out.
 
 applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}

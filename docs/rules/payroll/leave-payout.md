@@ -134,8 +134,8 @@ There is no balance to pay out.
 ### The employee is on a leave of absence
 - Calculate as usual, from the balance on the last day
   worked.
-- Note the leave of absence; Compliance raises its own
-  exception for it.
+- Note the leave of absence; validation.leave-of-absence
+  flags it.
 
 ## Output
 - result: pass, not available or not applicable

@@ -1,5 +1,5 @@
 id: payroll.leave-payout
-version: 3
+version: 4
 agent: payroll-calculation
 worker: leave
 purpose: Decide whether the employee's unused leave is paid out with the final paycheck, and how much.
@@ -60,7 +60,7 @@ checks:
   - when: "payout_rate_effective_date > last_day_worked"
     then: {flag: {kind: check, title: "The payout rate took effect after the last day worked"}}
   - when: "on_leave_of_absence is True"
-    then: {note: "The employee is on a leave of absence; Compliance raises its own exception"}
+    then: {note: "The employee is on a leave of absence; validation.leave-of-absence flags it"}
 
 cases:
   - when: "'payout-override' in instruction_kinds"

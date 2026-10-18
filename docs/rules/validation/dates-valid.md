@@ -33,7 +33,8 @@ case-facts has returned the dates.
 ### Last day worked is long before the termination date
 e.g. on leave until the termination date.
 - result: pass
-- Note the gap; Compliance checks the leave.
+- Note the gap; validation.leave-of-absence checks the
+  leave.
 
 ### The termination date is in the future
 - result: pass

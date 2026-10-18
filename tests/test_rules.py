@@ -7,13 +7,15 @@ from pathlib import Path
 import pytest
 import yaml
 
+from agents.graph.pipeline import PIPELINE
 from rules_engine.evaluate import STANDARD, _helpers
 from rules_engine.tables import RULES_DIR, catalogue
 
 RULE_FILES = sorted(p for p in RULES_DIR.glob("*/*.yaml") if p.parent.name != "tables")
 
-TOP_KEYS = {"id", "version", "agent", "worker", "purpose", "applies_to", "inputs", "judgement", "lines",
-            "compute", "checks", "cases", "outputs", "not_included", "to_confirm"}
+TOP_KEYS = {"id", "version", "agent", "worker", "pipeline", "purpose", "applies_to", "inputs", "judgement",
+            "lines", "compute", "checks", "cases", "outputs", "not_included", "to_confirm"}
+PIPELINE_KEYS = {stage["key"] for stage in PIPELINE}
 CASE_TYPES = {"state", "pay_group", "employment_type", "termination_type"}
 FUNCTIONS = set(_helpers({}))
 
@@ -51,6 +53,8 @@ def then_names(value) -> set[str]:
 
 def check_rule(rule: dict, facts: dict) -> list[str]:
     errors = [f"unknown key {k!r}" for k in rule if k not in TOP_KEYS]
+    if "pipeline" in rule and rule["pipeline"] not in PIPELINE_KEYS:
+        errors.append(f"pipeline {rule['pipeline']!r} is not a stage in graph/pipeline.py")
     errors += [f"applies_to: {k!r} is not a case type" for k in rule.get("applies_to", {}) if k not in CASE_TYPES]
 
     local: set[str] = set()      # names the rule works out itself
@@ -84,6 +88,13 @@ def test_fact_entries_have_only_known_keys():
     """An unquoted comma in a one-line entry splits it into a junk key."""
     keys = {"meaning", "type", "values", "source", "per", "unit", "note", "item_facts"}
     assert [n for n, e in catalogue().items() if isinstance(e, dict) and set(e) - keys] == []
+
+
+def test_a_step_carries_its_rules_pipeline_stage():
+    from agents.nodes.stage_agent import _placed
+    assert _placed("compliance.final-pay") == {"rule": "compliance.final-pay", "pipeline": "validation"}
+    assert _placed("compliance.cobra") == {"rule": "compliance.cobra"}  # its agent's stage
+    assert _placed("compliance.timing worker") == {}                    # not a rule: placed by agent
 
 
 @pytest.mark.parametrize("path", RULE_FILES, ids=lambda p: f"{p.parent.name}/{p.stem}")

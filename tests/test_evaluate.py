@@ -13,6 +13,28 @@ def balance(hours, **extra):
             "plan_max_hours": 200, "policy_pays_out": None, "already_paid_out": False, **extra}
 
 
+# ── on-cycle removed (Action 15) ──────────────────────────────────────────
+
+def test_still_in_a_regular_run_is_flagged_once_per_run():
+    record = run("payroll.on-cycle-removed", employment_type="regular", regular_runs_found=True,
+                 regular_runs=[{"run_pay_date": "2026-10-23", "run_status": "open"},
+                               {"run_pay_date": "2026-10-16", "run_status": "processing"}])
+    assert record["result"] == "fail"
+    assert record["outputs"]["runs_to_remove"] == 2
+    assert [f["kind"] for f in record["flags"]] == ["check", "decision"]
+
+
+def test_removed_from_every_regular_run_passes():
+    record = run("payroll.on-cycle-removed", employment_type="regular", regular_runs_found=True, regular_runs=[])
+    assert record["result"] == "pass"
+
+
+def test_unread_runs_are_never_taken_as_removed():
+    record = run("payroll.on-cycle-removed", employment_type="regular", regular_runs_found=None)
+    assert record["result"] == "not available"
+    assert record["flags"][0]["type"] == "missingData"
+
+
 # ── leave payout ──────────────────────────────────────────────────────────
 
 def test_so_1004_illinois_layoff_pays_no_leave():

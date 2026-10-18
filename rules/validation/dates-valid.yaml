@@ -1,5 +1,5 @@
 id: validation.dates-valid
-version: 2
+version: 3
 agent: validation
 worker: validator
 purpose: Make sure the case's dates are in a possible order — hire date < last day worked ≤ termination date.
@@ -16,7 +16,7 @@ compute:
 
 checks:
   - when: "days_on_leave_before_exit > 14"
-    then: {note: "The last day worked is well before the termination date (e.g. on leave); Compliance checks the leave"}
+    then: {note: "The last day worked is well before the termination date (e.g. on leave); validation.leave-of-absence checks the leave"}
   - when: "termination_date > today"
     then: {note: "The termination date is in the future"}
   - when: "termination_date < today"

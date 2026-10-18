@@ -1,7 +1,8 @@
 id: compliance.submit-by
-version: 2
+version: 3
 agent: compliance
 worker: timing
+pipeline: distribution
 purpose: Work out the latest time final pay can be submitted and still meet every deadline.
 
 applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}

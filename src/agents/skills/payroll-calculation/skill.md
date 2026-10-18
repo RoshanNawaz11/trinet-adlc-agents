@@ -25,6 +25,9 @@ follow it — the Payroll Calculation Agent part of this file is not for you.
 - The order's `assignedTo` is the TriNet specialist handling the case, not the
   employee the case is about — never use their dates or pay.
 - Never turn `unknown` or `not available` into a pass.
+- Don't check or flag the facts of the case, legal rules or deadlines —
+  Validation and Compliance do. If your `task` asks for one, skip that part
+  and say in a step whose it is.
 - **The rules are in `rules`** — the approved rules for this case and the work
   state's law, fetched by the Payroll Calculation Agent (`rules.how_to_read`
   says how to read them). They are the only way an amount is worked out or a
@@ -46,9 +49,9 @@ order your worker file gives. For each rule:
    check that holds, then the first case that holds. A later rule can use an
    earlier one's outputs.
 3. One step per rule: `check` = the rule's id, `result` = the case's
-   `result`, `evidence` = the rule's `version`, each input with its value and
-   source, which case held, each formula with its result, and the case's
-   `outcome` and `reason`.
+   `result`, `outcome` = the case's `outcome` (null when it has none),
+   `evidence` = the rule's `version`, each input with its value and source,
+   which case held, each formula with its result, and the case's `reason`.
 4. Each flag the rule raises (its checks' and its case's) is one flag:
    `type` = the flag's `type`, or the rule's id when it has none; `title` as
    the rule gives it; `detail` = its `detail` plus its `kind` and the rule's
@@ -85,6 +88,7 @@ inputs:
   from_execution:             # pay data — ask execution
     - pay rate, pay type, pay group and frequency, employment type
     - regular and overtime hours for the final period
+    - the regular payroll runs, not yet paid, that still include the employee
     - unused leave hours, and the company payout policy
     - withholding and deductions for this pay
     - benefits status codes
@@ -93,7 +97,7 @@ inputs:
     - payment method on file
 
 rules:                        # fetched (see Fetching the rules), in this order per worker
-  earnings:   [payroll.inputs-present, payroll.earnings]
+  earnings:   [payroll.inputs-present, payroll.earnings, payroll.on-cycle-removed]
   leave:      [payroll.leave-payout]
   deductions: [payroll.benefits, payroll.deductions]
   reconcile:  [payroll.net-pay, payroll.matches-system, payroll.payment-method]
@@ -111,10 +115,13 @@ The rules raise these; their `detail` as the rule gives it, or:
 - `benefitsAmbiguous` — `{"option_a": {"label", "net_pay"}, "option_b": {"label", "net_pay"}}`; its `recommendation` names the option the employee's records support best, and why
 - `netPayMismatch` — `{"system_net_pay", "calculated_net_pay", "explanation"}`
 - `paymentMethodFail` — `{"current_method", "reason", "recommended_method"}`
+- `garnishmentConfirm` — `{"garnishment_kind", "amount"}`; the analyst confirms the withholding with the Garnishment Team
+- `onCycleNotRemoved` — `{"pay_date"}`; the employee is still in a regular payroll run and could be paid twice
 
 ### Output fields (`output.cases.termination`)
 
 - `regular_pay`, `overtime_pay`, `gross_pay`, `leave_payout`, `taxes`, `deductions`, `garnishments`, `net_pay` — USD, or null
+- `runs_to_remove` — how many regular payroll runs still include the employee, or null
 - `unrecoverable` — USD that couldn't be taken from final pay, or null
 - `benefits_billed_to_client` — USD, or null
 - `system_net_pay` — the payroll system's figure, or null
@@ -153,7 +160,7 @@ workers, and reading them costs a turn each.
 
 | Kind | Round | Does |
 |---|---|---|
-| `payroll-calculation.earnings` | 1 | hours for hourly employees, regular pay, overtime, gross pay |
+| `payroll-calculation.earnings` | 1 | hours for hourly employees, regular pay, overtime, gross pay; the employee is out of the regular payroll runs |
 | `payroll-calculation.leave` | 1 | leave balance, whether it is paid out, payout amount |
 | `payroll-calculation.deductions` | 1 | benefits eligibility, deductions, garnishments, benefits billed to the client |
 | `payroll-calculation.reconcile` | 2 | taxes, unrecoverable amounts, net pay, the system's figure, payment method |

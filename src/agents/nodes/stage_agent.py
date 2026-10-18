@@ -44,6 +44,7 @@ PROVIDERS = {
 JSON_INSTRUCTION = (
     "Your final answer must be a single JSON object: "
     '{"steps": [{"title": "<what was checked and the outcome>", "source": "<system or tool used>", '
+    '"rule": "<the rule id the step applied, or null>", '
     '"result": "<short result>", "evidence": {<key facts>}}], '
     '"flags": [{"type": "<flag type from your skill>", "title": "<short title>", "detail": {<facts a reviewer needs>}, '
     '"recommendation": "<what Execution should do about it, if the reviewer approves — or null when the data must be fixed>"}], '
@@ -97,6 +98,16 @@ _RERUN = (
 
 class AgentOutputError(ValueError):
     pass
+
+
+def _placed(rule_id: Any) -> dict[str, str]:
+    """The rule a step or flag came from, and the pipeline stage the rule names
+    when it isn't its agent's (rules/*/*.yaml `pipeline:`). Nothing for an
+    unknown rule: the UI then places it by its agent."""
+    rule = next((r for r in all_rules() if r["id"] == rule_id), None)
+    if rule is None:
+        return {}
+    return {"rule": rule["id"], **({"pipeline": rule["pipeline"]} if rule.get("pipeline") else {})}
 
 
 def _fetched(state: State) -> list[dict]:
@@ -358,7 +369,7 @@ async def run_stage_agent(
         step_record(
             stage, agent, str(s["title"]), str(s.get("source") or "Agents"),
             result=str(s.get("result") or ""), evidence=s.get("evidence") or {},
-            feed=feed_for(s.get("result")),
+            feed=feed_for(s.get("result")), **_placed(s.get("rule")),
         )
         for s in parsed["steps"]
     ]
@@ -374,6 +385,7 @@ async def run_stage_agent(
             "recommendation": str(f["recommendation"]) if f.get("recommendation") else None,
             "resolved": False,
             "decisions": [],
+            **_placed((f.get("detail") or {}).get("rule")),
         }
         for i, f in enumerate(parsed.get("flags", []), start=1)
     ]

@@ -1,5 +1,5 @@
 id: payroll.deductions
-version: 2
+version: 3
 agent: payroll-calculation
 worker: deductions
 purpose: Work out what is taken from the final paycheck — benefit and other recurring deductions, garnishments, and any amount the employee owes back.
@@ -35,14 +35,19 @@ lines:
       after_tax_deductions: {sum: line_deduction, where: "before_tax is False"}
 
   - for_each: garnishment_orders
-    each: [garnishment_amount, garnishment_shortfall, set_up_in_payroll]
+    each: [garnishment_amount, garnishment_shortfall, set_up_in_payroll, garnishment_status, garnishment_kind]
     cases:
+      - when: "garnishment_status in ['released', 'satisfied']"
+        then: {line_garnishment: 0, reason: "The order is released or satisfied"}
       - when: "set_up_in_payroll is False"
         then: {line_garnishment: null,
-               flag: {kind: decision, title: "A garnishment order is not yet set up in payroll"}}
+               flag: {kind: input, type: garnishmentConfirm, title: "A garnishment order is not yet set up in payroll — get the amount from the Garnishment Team",
+                      detail: {garnishment_kind: "= garnishment_kind"}}}
       - when: true
-        then: {line_garnishment: "= garnishment_amount"}
-        why: The amount the payroll system's rules take, in its order and up to its limit — never a limit worked out here.
+        then: {line_garnishment: "= garnishment_amount",
+               flag: {kind: input, type: garnishmentConfirm, title: "Confirm the withholding with the Garnishment Team",
+                      detail: {garnishment_kind: "= garnishment_kind", amount: "= garnishment_amount"}}}
+        why: The amount the payroll system's rules take, in its order and up to its limit — never a limit worked out here. The Garnishment Team confirms it before the check is final (job map J4.8).
     total:
       garnishments: {sum: line_garnishment}
       garnishment_shortfall: {sum: garnishment_shortfall}

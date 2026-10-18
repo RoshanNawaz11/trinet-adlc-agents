@@ -16,7 +16,6 @@ from typing import Any
 
 from agents.model.gateway import session_id
 from agents.queue.subtasks import QUEUE, SubTask, redis_settings
-from agents.workers.compliance.exceptions import exceptions
 from agents.workers.compliance.obligations import obligations
 from agents.workers.compliance.timing import timing
 from agents.workers.payroll_calculation.deductions import deductions
@@ -36,7 +35,6 @@ HANDLERS = {
     "validation.validator": validator,
     "compliance.timing": timing,
     "compliance.obligations": obligations,
-    "compliance.exceptions": exceptions,
     "payroll-calculation.earnings": earnings,
     "payroll-calculation.leave": leave,
     "payroll-calculation.deductions": deductions,

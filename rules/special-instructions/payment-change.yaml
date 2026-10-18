@@ -1,7 +1,8 @@
 id: special-instructions.payment-change
-version: 2
+version: 3
 agent: validation
 worker: validator
+pipeline: distribution
 purpose: Handle an instruction that changes how or where final pay is delivered — the payment method or the delivery.
 
 applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}

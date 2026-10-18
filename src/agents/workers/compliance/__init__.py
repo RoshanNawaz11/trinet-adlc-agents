@@ -1,1 +1,1 @@
-"""Compliance's worker agents: timing, obligations, exceptions."""
+"""Compliance's worker agents: timing, obligations."""

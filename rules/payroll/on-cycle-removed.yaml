@@ -1,0 +1,44 @@
+id: payroll.on-cycle-removed
+version: 1
+agent: payroll-calculation
+worker: earnings
+purpose: Make sure the employee is out of the regular payroll runs, so final pay isn't paid twice (job map Action 15).
+
+applies_to: {state: any, pay_group: any, employment_type: any, termination_type: any}
+
+inputs: [employment_type, regular_runs_found]
+
+lines:
+  - for_each: regular_runs
+    each: [run_pay_date, run_status]
+    cases:
+      - when: "run_status == 'processing'"
+        then: {flag: {kind: decision, type: onCycleNotRemoved, title: "Still in a regular payroll run that is already processing — it may pay twice; decide",
+                      detail: {pay_date: "= run_pay_date"}}}
+        why: Too late to simply take the employee out — someone must stop the payment or offset it.
+      - when: true
+        then: {flag: {kind: check, type: onCycleNotRemoved, title: "Still in a regular payroll run — remove the employee before final pay",
+                      detail: {pay_date: "= run_pay_date"}}}
+    total:
+      runs_to_remove: {count: run_status}
+
+cases:
+  - when: "employment_type == 'contractor'"
+    then: {result: not applicable}
+    why: payroll.inputs-present flags the classification.
+  - when: "regular_runs_found is not True"
+    then: {result: not available,
+           flag: {kind: input, type: missingData, title: "The regular payroll runs couldn't be read — check the employee was removed",
+                  detail: {missing: [regular_runs]}}}
+    why: Never assume the employee was removed.
+  - when: "runs_to_remove > 0"
+    then: {result: fail}
+  - when: true
+    then: {result: pass}
+
+outputs: [result, runs_to_remove]
+
+not_included: A regular run that already paid the final period (payroll.earnings, final_period_already_paid).
+
+to_confirm:
+  - Is final pay ever paid inside the regular run (on-cycle)? Then the employee stays in that run, and only the later runs count.
