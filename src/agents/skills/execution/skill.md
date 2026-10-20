@@ -35,12 +35,13 @@ this package, and accepts or declines the whole run.
 
 1. **Build the payment package** from the other agents' outputs
    (`previous_results.<agent>.cases.termination`), as listed below.
-2. **Apply each flag's `recommendation`** as the proposed outcome — the
-   reviewer decides on the whole run afterwards, and nothing is acted on before
-   then. For example `complianceTiming` → pay by the earlier legal
-   due date; `paymentMethodFail` → use the recommended method. A flag whose
-   `recommendation` is null (a data problem, e.g. `missingData`) changes
-   nothing — the field it names stays null. Record one step per flag applied.
+2. **Apply each flag's `answer`** — the analyst answered every flag during the
+   run, by accepting its suggested fix or typing their own. The answer decides
+   the outcome; the reviewer still decides on the whole run afterwards, and
+   nothing is acted on before then. For example `complianceTiming` → pay by the
+   date the answer gives; `paymentMethodFail` → use the method the answer
+   names. An answer that only acknowledges (a check) changes nothing. Record
+   one step per flag applied.
 3. **Check the package is complete** — every field it requires is known. If
    any is missing, the package status is `blocked`.
 4. **Special instructions** — carry Validation's special delivery instructions

@@ -14,13 +14,13 @@ from typing import Any
 
 from langgraph.graph import END
 
-from agents.graph.edges import NODES, OUTPUT_VALIDATOR, STAGE_AGENTS
-from agents.graph.states import State, is_finished
+from agents.graph.edges import AGENTS, FLAG_REVIEW, NODES, OUTPUT_VALIDATOR, STAGE_AGENTS
+from agents.graph.states import State, is_finished, waiting_flags
 from agents.nodes.planner.node import MAX_PLANS
 from agents.nodes.stage_agent import MAX_RUNS
 
 # nodes that never share a step with another
-_ALONE = frozenset({"planner", "review", "execution", OUTPUT_VALIDATOR, END})
+_ALONE = frozenset({"planner", FLAG_REVIEW, "review", "execution", OUTPUT_VALIDATOR, END})
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,8 @@ class _Run:
     open_needs: tuple[dict[str, Any], ...]
     reviewed: str | None
     validated: dict[str, Any] | None
+    waiting_flags: tuple[str, ...]  # flag ids waiting for the analyst's answer
+    answering: frozenset[str]       # agents running again with the analyst's answers
 
     @classmethod
     def of(cls, state: State) -> _Run:
@@ -44,6 +46,8 @@ class _Run:
             open_needs=tuple(n for n in state.get("needs") or [] if n["status"] == "open"),
             reviewed=(state.get("review") or {}).get("action"),
             validated=results[OUTPUT_VALIDATOR] if is_finished(results, OUTPUT_VALIDATOR) else None,
+            waiting_flags=tuple(f["flag_id"] for f in waiting_flags(state.get("flags") or [])),
+            answering=frozenset(a for a, r in results.items() if r.get("rerun") and r.get("answered")),
         )
 
     @property
@@ -70,6 +74,23 @@ Rule = Callable[[_Run, list[str]], Iterator[str]]
 def _alone(run: _Run, route: list[str]) -> Iterator[str]:
     if len(route) > 1 and (alone := sorted(set(route) & _ALONE)):
         yield f"{alone} must run alone"
+
+
+def _flag_review(run: _Run, route: list[str]) -> Iterator[str]:
+    """A flag keeps the case paused until the analyst answers it."""
+    if run.waiting_flags and route != [FLAG_REVIEW]:
+        yield f"flags {list(run.waiting_flags)} wait for the analyst's answer — route [\"{FLAG_REVIEW}\"] alone"
+    if FLAG_REVIEW in route and not run.waiting_flags:
+        yield f"{FLAG_REVIEW} needs a flag waiting for an answer"
+
+
+def _answering(run: _Run, route: list[str]) -> Iterator[str]:
+    """The agents applying the analyst's answers go first: the others would read
+    their old results. An agent they asked something can still run to answer."""
+    if not run.answering:
+        return
+    for agent in (a for a in route if a in AGENTS and a not in run.answering and not run.is_asked(a)):
+        yield f"{agent} waits until {sorted(run.answering)} have run again with the analyst's answers"
 
 
 def _after_review(run: _Run, route: list[str]) -> Iterator[str]:
@@ -148,7 +169,8 @@ def _end(run: _Run, route: list[str]) -> Iterator[str]:
 
 
 _RULES: tuple[Rule, ...] = (
-    _alone, _after_review, _stage_agents, _fetch, _execution, _output_validator, _replan, _review, _end,
+    _alone, _flag_review, _answering, _after_review, _stage_agents, _fetch, _execution, _output_validator,
+    _replan, _review, _end,
 )
 
 

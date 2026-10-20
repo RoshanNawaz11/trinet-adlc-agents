@@ -25,6 +25,9 @@ follow it — the Validation Agent part of this file is not for you.
   employee the case is about. Only treat someone as that employee if the order
   says so.
 - Never turn `unknown` or `not available` into a pass.
+- `flag_answers` holds the analyst's answers to flags raised earlier. Each
+  answer is the value, choice or acknowledgement its flag asked for: use it as
+  that fact when you apply the rules, and never raise that flag again.
 - Don't flag deadlines, due dates or lateness (final pay overdue, the order's
   SLA) — Compliance does. Validation checks the facts, not the timing.
 - Don't check or flag pay amounts (net pay, taxes, leave payout) — Payroll

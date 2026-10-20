@@ -15,7 +15,9 @@ AGENTS = ("validation", "compliance", "payroll-calculation", "execution")
 STAGE_AGENTS = AGENTS[:-1]
 # checks execution's package before review; not in the plan — it always follows execution
 OUTPUT_VALIDATOR = "output-validator"
-NODES = ("planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", "review", END)
+# pauses for the analyst's answers whenever an agent raises a flag
+FLAG_REVIEW = "flag-review"
+NODES = ("planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", FLAG_REVIEW, "review", END)
 
 
 def route_from_orchestrator(state: State) -> list[str]:

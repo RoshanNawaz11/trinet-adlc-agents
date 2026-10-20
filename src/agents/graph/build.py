@@ -4,6 +4,7 @@
                           ├─▶ compliance ────────────┤  several can run at once;
                           ├─▶ payroll-calculation ───┤  each returns to the orchestrator
                           ├─▶ fetch (execution) ─────┤
+                          ├─▶ flag-review (pause) ───┤  on every flag; the raising agent reruns
                           ├─▶ review (pause, once) ──┤
                           ├─▶ execution ─────────────┤
                           ├─▶ output-validator ──────┘  issues → back to the planner, once
@@ -21,8 +22,8 @@ from langgraph._internal._retry import default_retry_on
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 
-from agents.graph.edges import AGENTS, OUTPUT_VALIDATOR, route_from_orchestrator
-from agents.graph.interrupts import review_node
+from agents.graph.edges import AGENTS, FLAG_REVIEW, OUTPUT_VALIDATOR, route_from_orchestrator
+from agents.graph.interrupts import flag_review_node, review_node
 from agents.graph.states import State
 from agents.nodes.compliance.node import compliance_node
 from agents.nodes.execution.fetch import fetch_node
@@ -77,15 +78,16 @@ def build_graph(checkpointer_kind: str = "memory", db_path: Path | None = None):
     }
     for name, node in nodes.items():
         graph.add_node(name, timed(name, node), retry_policy=_RETRY)
+    graph.add_node(FLAG_REVIEW, flag_review_node)
     graph.add_node("review", review_node)
 
     graph.add_edge(START, "orchestrator")
     graph.add_conditional_edges(
         "orchestrator",
         route_from_orchestrator,
-        ["planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", "review", END],
+        ["planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", FLAG_REVIEW, "review", END],
     )
-    for node in ("planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", "review"):
+    for node in ("planner", *AGENTS, OUTPUT_VALIDATOR, "fetch", FLAG_REVIEW, "review"):
         graph.add_edge(node, "orchestrator")
 
     return graph.compile(checkpointer=get_checkpointer(checkpointer_kind, db_path))

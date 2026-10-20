@@ -12,11 +12,11 @@ from typing import Any
 
 from langgraph.graph import END
 
-from agents.graph.edges import AGENTS, OUTPUT_VALIDATOR
+from agents.graph.edges import AGENTS, FLAG_REVIEW, OUTPUT_VALIDATOR
 from agents.nodes.orchestrator.route_rules import broken_rules
 from agents.nodes.planner.node import MAX_PLANS
 from agents.graph.interrupts import open_flags
-from agents.graph.states import Flag, State, is_finished, merge_flags, merge_needs, step_record
+from agents.graph.states import Flag, State, is_finished, merge_flags, merge_needs, step_record, waiting_flags
 from agents.model.gateway import ModelGateway, get_default_gateway
 from agents.nodes.stage_agent import MAX_RUNS
 from agents.skills.client import MAX_TOKENS, run_skill
@@ -80,6 +80,10 @@ def _brief(state: State, rejected: list[dict[str, Any]]) -> str:
         # who asked whom for what, and how it went — not the answers: routing needs only the status
         "needs": [{k: v for k, v in n.items() if k != "answer"} for n in state.get("needs") or []],
         "flags": state.get("flags") or [],
+        # flags no analyst has answered yet — while any are, the run waits at flag-review
+        "flags_waiting_for_answer": [f["flag_id"] for f in waiting_flags(state.get("flags") or [])],
+        # agents running again with the analyst's answers — they go before anyone else
+        "applying_answers": sorted(a for a, r in results.items() if r.get("rerun") and r.get("answered")),
         "review": state.get("review"),
     }
     if rejected:
@@ -176,6 +180,7 @@ async def orchestrator_node(state: State, gateway: ModelGateway | None = None) -
     update["flagged"] = bool(open_flags(after))
     update["status"] = (
         "rejected" if review == "reject"
+        else "needs_input" if route == [FLAG_REVIEW]
         else "needs_review" if route == ["review"]
         else "done" if route == [END]
         else "running"

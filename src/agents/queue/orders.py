@@ -1,7 +1,7 @@
 """The service-order queue.
 
-FastAPI puts one job here per processing run (and a second job to resume a
-run paused for review). This worker runs the agent graph. The sub-task queue
+FastAPI puts one job here per processing run (and one more each time it
+resumes a paused run: on flags, or at the final review). This worker runs the agent graph. The sub-task queue
 (subtasks.py) is separate on purpose: a service-order job waits on its
 sub-tasks, so the two must not share a worker pool.
 
@@ -22,7 +22,7 @@ from typing import Any
 
 from agents.observability.langwatch_setup import langwatch_setup
 from agents.queue.subtasks import redis_settings
-from agents.runtime.runner import run_query
+from agents.runtime.runner import IncompleteAnswers, run_query
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,11 @@ async def _run(ctx: dict, job: dict, *, resume: bool) -> dict[str, Any]:
             ),
         )
         raise
+    except IncompleteAnswers as exc:
+        # nothing was resumed: the case is still paused on its flags
+        logger.warning("Service order run %s: %s", thread_id, exc)
+        await write_status(ctx["redis"], thread_id, "paused", error=str(exc))
+        return {"thread_id": thread_id, "status": "paused", "error": str(exc)}
     except Exception as exc:
         logger.exception("Service order run %s failed", thread_id)
         await write_status(ctx["redis"], thread_id, "failed", error=str(exc))
@@ -86,7 +91,9 @@ async def process_service_order(ctx: dict, job: dict) -> dict[str, Any]:
 
 
 async def resume_service_order(ctx: dict, job: dict) -> dict[str, Any]:
-    """Continue a run paused for review. ``job`` is ``{"thread_id", "decision"}``."""
+    """Continue a paused run. ``job`` is ``{"thread_id", "decision"}``: the
+    analyst's answers to every flag (``{"answers": [...]}``), or at the final
+    review the approval or rejection (runner.run_query)."""
     logger.info("[orders] resume %s", job.get("thread_id"))
     return await _run(ctx, job, resume=True)
 

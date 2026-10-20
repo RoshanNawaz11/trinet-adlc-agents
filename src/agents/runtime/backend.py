@@ -105,6 +105,7 @@ def lifecycle_event(kind: str, *, employee: str | None) -> dict[str, Any]:
     catalog = {
         "started": ("Processing started", "Started processing", "AI Agents", "agent", "blue", None),
         "paused": ("Ready for Mark as Reviewed", "Paused for analyst review", "AI Agents", "agent", "green", "attention"),
+        "needs_input": ("Flags need your answer", "Paused for the analyst's answers to its flags", "AI Agents", "agent", "amber", "attention"),
         "completed": ("Review completed", "Completed review", "AI Agents", "agent", "green", "routine"),
         "needs_review": ("Flagged for review", "Flagged for review", "AI Agents", "agent", "amber", "attention"),
         "failed": ("Processing failed", "Processing failed", "System", "system", "red", "attention"),

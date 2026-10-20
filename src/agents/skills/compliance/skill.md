@@ -28,6 +28,9 @@ follow it — the Compliance Agent part of this file is not for you.
 - The order's `assignedTo` is the TriNet specialist handling the case, not the
   employee the case is about.
 - Never turn `unknown` or `not available` into a pass.
+- `flag_answers` holds the analyst's answers to flags raised earlier. Each
+  answer is the value, choice or acknowledgement its flag asked for: use it as
+  that fact when you apply the rules, and never raise that flag again.
 - Don't check or flag pay amounts (net pay, taxes, leave payout amounts) or
   the facts of the case — Payroll Calculation and Validation do. If your
   `task` asks for one, skip that part and say in a step whose it is.

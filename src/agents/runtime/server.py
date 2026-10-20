@@ -33,6 +33,8 @@ _SRC_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
+from agents.graph.edges import FLAG_REVIEW
+from agents.graph.interrupts import missing_answers
 from agents.graph.pipeline import with_pipeline
 from agents.observability.langwatch_setup import langwatch_setup
 from agents.runtime.runner import _setup_logging, open_graph, run_query
@@ -65,6 +67,25 @@ class ReviewDecision(BaseModel):
         if self.action == "reject" and not self.reason:
             raise ValueError("a reject needs a reason")
         return self
+
+
+class FlagAnswer(BaseModel):
+    """The analyst's answer to one flag: accept its suggested fix, or decline it
+    and type the answer instead."""
+    flag_id: str
+    action: Literal["accept", "decline"]
+    answer: str | None = None   # what the analyst typed; required on decline
+
+    @model_validator(mode="after")
+    def _typed_on_decline(self) -> "FlagAnswer":
+        if self.action == "decline" and not (self.answer or "").strip():
+            raise ValueError(f"declining {self.flag_id} needs the analyst's answer")
+        return self
+
+
+class FlagAnswers(BaseModel):
+    """The analyst's answers to every flag the run is paused on (graph.interrupts.flag_review_node)."""
+    answers: list[FlagAnswer]
 
 
 @asynccontextmanager
@@ -126,14 +147,21 @@ async def create_run(req: RunRequest) -> dict[str, Any]:
 
 
 @app.post("/runs/{thread_id}/resume", status_code=202)
-async def resume_run(thread_id: str, decision: ReviewDecision) -> dict[str, Any]:
+async def resume_run(thread_id: str, decision: FlagAnswers | ReviewDecision) -> dict[str, Any]:
     if _runs.get(thread_id, {}).get("status") == "running":
         raise HTTPException(409, f"Run {thread_id} is running")
     # the checkpointer, not _runs, says whether it is paused — it outlives a restart
     snapshot = await _snapshot(thread_id)
     if not snapshot.next:
         raise HTTPException(409, f"Run {thread_id} is not paused")
-    return _start(thread_id, None, resume=True, decision=decision.model_dump(exclude_none=True))
+    on_flags = FLAG_REVIEW in snapshot.next
+    if on_flags != isinstance(decision, FlagAnswers):
+        expected = "the answers to its flags" if on_flags else "approve or reject"
+        raise HTTPException(422, f"Run {thread_id} is paused at {list(snapshot.next)} — send {expected}")
+    body = decision.model_dump(exclude_none=True)
+    if on_flags and (missing := missing_answers(snapshot.values or {}, body)):
+        raise HTTPException(422, f"Answer every flag before the case continues — no answer yet for {missing}")
+    return _start(thread_id, None, resume=True, decision=body)
 
 
 @app.get("/runs/{thread_id}")

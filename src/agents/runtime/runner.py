@@ -22,6 +22,8 @@ if _SRC_ROOT not in sys.path:
     sys.path.insert(0, _SRC_ROOT)
 
 from agents.graph.build import build_graph
+from agents.graph.edges import FLAG_REVIEW
+from agents.graph.interrupts import missing_answers
 from agents.graph.pipeline import PIPELINE
 from agents.model.gateway import session_id, trace_id
 from agents.runtime.backend import employee_name, lifecycle_event, report_progress
@@ -119,6 +121,11 @@ def _initial_state(
     return state
 
 
+class IncompleteAnswers(ValueError):
+    """The analyst's reply leaves a flag without an answer. Nothing is resumed:
+    the case stays paused until every flag is answered."""
+
+
 def _config(thread_id: str) -> dict[str, Any]:
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     # No agent-side trace when LANGWATCH_DISABLED=true — LiteLLM does the tracing.
@@ -137,7 +144,10 @@ async def run_query(
 ) -> dict[str, Any]:
     """Run the agents on a service order — by id (preferred: the record is
     fetched first) or, as a fallback, on a text description of it. On resume,
-    `decision` is the reviewer's approval or rejection of the run (graph.states.Review)."""
+    `decision` answers the pause the run is at: paused on flags, the analyst's
+    answers ({"answers": [{"flag_id", "action": "accept" | "decline", "answer"}]},
+    graph.interrupts.flag_review_node) — every flag must have one; at the final
+    review, the reviewer's approval or rejection of the run (graph.states.Review)."""
     thread_id = thread_id or str(uuid.uuid4())
     service_order = await fetch_service_order(service_order_id) if service_order_id and not resume else None
     run_dir(thread_id, service_order)  # the run's folder, named after the order before anything logs to it
@@ -159,6 +169,9 @@ async def run_query(
 
         employee = None
         if resume:
+            paused_at = await graph.aget_state(config)
+            if FLAG_REVIEW in paused_at.next and (missing := missing_answers(paused_at.values or {}, decision)):
+                raise IncompleteAnswers(f"Answer every flag before the case continues — no answer yet for {missing}")
             payload: Any = Command(resume=decision) if decision else None
         else:
             # Guard against restarting a thread that's mid-run instead of
@@ -231,7 +244,9 @@ async def run_query(
             update=values if isinstance(values, dict) else None,
             run_status="paused",
             employee=employee,
-            extra_events=[lifecycle_event("paused", employee=employee)],
+            extra_events=[lifecycle_event(
+                "needs_input" if FLAG_REVIEW in snapshot.next else "paused", employee=employee,
+            )],
             service_order_no=service_order_id,
         )
 
@@ -251,22 +266,27 @@ async def _cli(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Resume a thread paused for review, with --approve or --reject.",
+        help="Resume a paused thread: with --answers when paused on flags, --approve or --reject at the final review.",
     )
     review = parser.add_mutually_exclusive_group()
+    review.add_argument("--answers", metavar="FILE",
+                        help='JSON file answering every flag: [{"flag_id", "action": "accept" | "decline", "answer"}]')
     review.add_argument("--approve", action="store_true", help="Approve the run: execution builds the package.")
     review.add_argument("--reject", metavar="REASON", help="Reject the run, with a reason: it ends.")
     args = parser.parse_args(argv)
 
     if args.resume and not args.thread_id:
         parser.error("--resume requires --thread-id")
-    if args.resume and not args.approve and args.reject is None:
-        parser.error("--resume requires --approve or --reject REASON")
+    if args.resume and not args.answers and not args.approve and args.reject is None:
+        parser.error("--resume requires --answers FILE, --approve or --reject REASON")
     if not args.resume and not args.service_order_id:
         parser.error("a service order id is required unless --resume")
 
     decision = None
-    if args.reject is not None:
+    if args.answers:
+        answers = json.loads(Path(args.answers).read_text(encoding="utf-8"))
+        decision = answers if isinstance(answers, dict) else {"answers": answers}
+    elif args.reject is not None:
         decision = {"action": "reject", "reason": args.reject}
     elif args.approve:
         decision = {"action": "approve"}

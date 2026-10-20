@@ -9,7 +9,7 @@ import logging
 from datetime import date
 from typing import Any
 
-from agents.graph.states import Flag, Need, Stage, State, feed_for, step_record
+from agents.graph.states import Flag, Need, Stage, State, feed_for, flag_agent, step_record
 from agents.model.gateway import ModelGateway, get_default_gateway
 from agents.queue.pool import HANDLERS
 from agents.queue.subtasks import dispatch
@@ -47,7 +47,7 @@ JSON_INSTRUCTION = (
     '"rule": "<the rule id the step applied, or null>", '
     '"result": "<short result>", "evidence": {<key facts>}}], '
     '"flags": [{"type": "<flag type from your skill>", "title": "<short title>", "detail": {<facts a reviewer needs>}, '
-    '"recommendation": "<what Execution should do about it, if the reviewer approves — or null when the data must be fixed>"}], '
+    '"recommendation": "<the fix you suggest — the analyst can accept it as the answer — or null when only the analyst can supply it>"}], '
     '"output": {<your findings for the agents after you>}, '
     '"confidence": <0.0-1.0, how sure you are of your findings>}. '
     "Use an empty flags list when nothing needs a human. "
@@ -95,6 +95,15 @@ _RERUN = (
     "full final answer."
 )
 
+_ANSWERED = (
+    "\n\nThe analyst answered flags you raised: `flag_answers`. Each answer is the "
+    "value, choice or acknowledgement that flag asked for. Run again with them: send "
+    "the workers whose rules raised those flags (they get `flag_answers` too) and any "
+    "worker whose findings depend on them, keep the rest of your previous answer "
+    "(`previous_results.{bundle}`), then give your full final answer. Never raise an "
+    "answered flag again."
+)
+
 
 class AgentOutputError(ValueError):
     pass
@@ -113,6 +122,14 @@ def _placed(rule_id: Any) -> dict[str, str]:
 def _fetched(state: State) -> list[dict]:
     """What other agents already fetched or answered, shared by everyone."""
     return [{"request": n["request"], "answer": n["answer"]} for n in state.get("needs") or [] if n["status"] == "done"]
+
+
+def _flag_answers(state: State, bundle: str) -> list[dict]:
+    """The analyst's answers to the flags this agent raised, so far in the run."""
+    return [
+        {"flag_id": f["flag_id"], "type": f["type"], "title": f["title"], "detail": f["detail"], "answer": f["answer"]}
+        for f in state.get("flags") or [] if "answer" in f and flag_agent(f) == bundle
+    ]
 
 
 def _for_agent(rules: dict) -> dict:
@@ -148,6 +165,8 @@ def _input(state: State, bundle: str, can_ask: bool, requests: list[Need], worke
         "previous_results": state.get("results") or {},
         "flags": state.get("flags") or [],
     }
+    if answers := _flag_answers(state, bundle):
+        data["flag_answers"] = answers
     if requests:
         data["requests_for_you"] = [
             {"id": n["id"], "from": n["from_agent"], "request": n["request"], "args": n["args"]}
@@ -260,8 +279,11 @@ async def run_stage_agent(
     if requests:
         instruction += _ANSWER
     # re-planned with a task saying what to fix (the validator just checks the new package)
+    previous = (state.get("results") or {}).get(bundle) or {}
     replanned = any(s["agent"] == bundle for s in state.get("plan") or [])
-    if replanned and ((state.get("results") or {}).get(bundle) or {}).get("rerun"):
+    if previous.get("rerun") and previous.get("answered"):
+        instruction += _ANSWERED.format(bundle=bundle)
+    elif replanned and previous.get("rerun"):
         instruction += _RERUN.format(bundle=bundle)
     # kept across runs, so a re-run after needs are answered still has them
     worker_results = list((state.get("worker_results") or {}).get(bundle, []))
@@ -320,6 +342,9 @@ async def run_stage_agent(
             "data": _fetched(state),
             "worker_results": list(worker_results),
         }
+        # the analyst's answers: each is the fact or decision its flag asked for
+        if answers := _flag_answers(state, bundle):
+            given["flag_answers"] = answers
         results = await dispatch([
             {**t, "input": {**t["input"], **given, **({"rules": _for_worker(rules, t["kind"])} if rules else {})}}
             for t in tasks
@@ -374,10 +399,12 @@ async def run_stage_agent(
         for s in parsed["steps"]
     ]
 
-    # what the reviewer sees at the end of the run
+    # what the analyst answers before the run goes on; numbered after the agent's
+    # earlier flags, so a rerun never overwrites an answered one
+    taken = sum(1 for f in state.get("flags") or [] if flag_agent(f) == bundle)
     flags: list[Flag] = [
         {
-            "flag_id": f"{bundle}-{i}",
+            "flag_id": f"{bundle}-{taken + i}",
             "type": str(f["type"]),
             "stage": stage,
             "title": str(f.get("title") or f["type"]),

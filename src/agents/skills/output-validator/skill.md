@@ -44,8 +44,8 @@ its source, the source agent when its own result is missing a value.
    - `pay_date` = `previous_results.compliance.cases.termination.final_pay_due_date`,
      or the earlier date a `complianceTiming` flag recommends
    - `special_instructions` = Validation's special delivery instructions
-3. **Flags applied** — every unresolved flag with a non-null `recommendation`
-   has one entry in `decisions_applied`, and every entry names a real flag.
+3. **Flags applied** — every unresolved flag with an `answer` has one entry
+   in `decisions_applied`, and every entry names a real flag.
 4. **Status** — `ready` only when all three package fields are non-null;
    `blocked` otherwise, with a `blocked_reason`. `blocked_reason` is null when
    `ready`.

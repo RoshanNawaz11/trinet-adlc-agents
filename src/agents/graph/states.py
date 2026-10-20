@@ -38,6 +38,7 @@ class Flag(TypedDict):
     detail: dict[str, Any]
     recommendation: NotRequired[str | None]  # what Execution does about it if the run is approved; null for a data problem
     resolved: bool              # true only once merged into another flag
+    answer: NotRequired[Any]    # the analyst's input for it (graph.interrupts.flag_review_node); absent = still waiting
     decisions: list[dict[str, Any]]  # what happened to it, e.g. {"action": "merged", "into": ...}
     rule: NotRequired[str]      # the rule that raised it, from detail.rule
     pipeline: NotRequired[str]  # as on StepRecord
@@ -78,6 +79,17 @@ def merge_flags(current: list[Flag], new: list[Flag]) -> list[Flag]:
     return list(by_id.values())
 
 
+def waiting_flags(flags: list[Flag]) -> list[Flag]:
+    """The flags the run waits on until the analyst answers them. Merged
+    duplicates are left out, and so is the planner's: an empty plan just ends."""
+    return [f for f in flags if not f["resolved"] and "answer" not in f and f["stage"] != "planning"]
+
+
+def flag_agent(flag: Flag) -> str:
+    """The agent that raised a flag — its flag_id is "<agent>-<n>"."""
+    return flag["flag_id"].rsplit("-", 1)[0]
+
+
 def merge_needs(current: list[Need], new: list[Need]) -> list[Need]:
     """Same as merge_flags: a need with a known id is replaced in place."""
     by_id = {n["id"]: n for n in current}
@@ -99,14 +111,14 @@ class State(TypedDict):
     service_order_id: NotRequired[str]
     service_order: NotRequired[dict[str, Any]]  # the record fetched by id before the run starts
     query: NotRequired[str]     # fallback: the order described as text, when no id is given
-    status: Literal["running", "needs_review", "done", "rejected", "failed"]
+    status: Literal["running", "needs_input", "needs_review", "done", "rejected", "failed"]
     plan: NotRequired[list[PlanStep]]  # the planner's plan; the orchestrator runs it in order
     flagged: bool               # an agent raised a flag (shown at review and in the result)
     review: NotRequired[Review]  # the reviewer's decision, once given; execution needs "approve"
     priority: NotRequired[Literal["high", "medium", "low"]]  # planner's decision, raised a level once any flag is raised
     confidence: NotRequired[int]  # 0-100: the lowest stage confidence, once a stage has reported
     mcp_results: NotRequired[list[dict[str, Any]]]  # MCP tool calls, for later agents
-    results: Annotated[dict[str, dict[str, Any]], operator.or_]  # agent name -> its output (planner: its plan + priority); "rerun": true = run again after a re-plan
+    results: Annotated[dict[str, dict[str, Any]], operator.or_]  # agent name -> its output (planner: its plan + priority); "rerun": true = run again after a re-plan or the analyst's answers ("answered": those flag ids)
     steps: Annotated[list[StepRecord], operator.add]
     flags: Annotated[list[Flag], merge_flags]
     needs: Annotated[list[Need], merge_needs]  # agents' requests to each other, routed by the orchestrator
