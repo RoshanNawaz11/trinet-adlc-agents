@@ -101,7 +101,11 @@ _ANSWERED = (
     "the workers whose rules raised those flags (they get `flag_answers` too) and any "
     "worker whose findings depend on them, keep the rest of your previous answer "
     "(`previous_results.{bundle}`), then give your full final answer. Never raise an "
-    "answered flag again."
+    "answered flag again. An answer that hands the flag to another team (e.g. \"send "
+    "to the COBRA team\", \"move this to Garnishment\") is not a value: leave what the "
+    "flag asked for not available, carry on with the rest, and list it in your "
+    'output as "handoffs": [{{"flag_id": "<the flag>", "team": "<the team named>", '
+    '"note": "<the analyst\'s answer>"}}].'
 )
 
 

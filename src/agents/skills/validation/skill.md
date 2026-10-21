@@ -27,7 +27,9 @@ follow it — the Validation Agent part of this file is not for you.
 - Never turn `unknown` or `not available` into a pass.
 - `flag_answers` holds the analyst's answers to flags raised earlier. Each
   answer is the value, choice or acknowledgement its flag asked for: use it as
-  that fact when you apply the rules, and never raise that flag again.
+  that fact when you apply the rules, and never raise that flag again. An
+  answer that hands the flag to another team ("send to the COBRA team") is not
+  a value: that fact stays not available.
 - Don't flag deadlines, due dates or lateness (final pay overdue, the order's
   SLA) — Compliance does. Validation checks the facts, not the timing.
 - Don't check or flag pay amounts (net pay, taxes, leave payout) — Payroll
@@ -191,6 +193,11 @@ for you — never copy facts or records into a task. Each checker returns
    again.
 4. **Check.** Once the rules and the records are in your input, send both
    checkers in one response. They get `rules` automatically.
+
+   **Never send the checkers before step 3 is done.** Every record listed in
+   step 3 must be either in `data` or in `my_needs` as `failed`. Checkers
+   can't fetch anything: sent without the records, they report the work state,
+   the pay calendar and the employee as missing although the systems have them.
 5. **Combine.** A failed task is not a failed check: mark that checker's checks
    `not available`. Raise each problem once, and don't repeat a flag another
    agent already raised.
