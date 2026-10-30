@@ -1,18 +1,8 @@
-"""LLM access, isolated behind one interface so no node imports the
-Anthropic SDK directly.
+"""
+Model gateway providing direct access to the Anthropic API.
 
-Every model call goes through LiteLLM:
-
-    agents ──▶ LiteLLM (LITELLM_BASE_URL) ──▶ Cloudflare AI Gateway ──▶ Anthropic
-
-Skill uploads are the one exception and go straight to Cloudflare
-(ANTHROPIC_BASE_URL + ANTHROPIC_GATEWAY_TOKEN), see `require_skills_client()`.
-Cloudflare holds the Anthropic key, so this repo needs no real one.
-`ANTHROPIC_API_KEY` is only sent to LiteLLM (any value works unless LiteLLM
-has a master key set). `policy.yaml` picks the model per calling node.
-
-Only "LITELLM_BASE_URL isn't set" degrades gracefully (see
-`MissingAPIKeyError`); a bad request, rate limit, etc. all raise normally.
+This module creates a single Anthropic client instance used for both
+model calls and skill uploads. Tracing is handled by LangWatch.
 """
 
 from __future__ import annotations
@@ -23,7 +13,6 @@ from contextvars import ContextVar
 from pathlib import Path
 
 import anthropic
-import httpx2
 import yaml
 from dotenv import load_dotenv
 
@@ -33,12 +22,11 @@ POLICY_PATH = Path(__file__).parent / "policy.yaml"
 
 
 class MissingAPIKeyError(RuntimeError):
-    """Raised by `complete()` when LITELLM_BASE_URL isn't configured.
+    """Raised when `ANTHROPIC_API_KEY` is not set.
 
-    Callers (orchestrator/planner/skills) catch specifically this — never a
-    bare `except Exception` — so a real API failure (bad request, rate
-    limit, network error) still surfaces loudly instead of silently
-    degrading to dummy behavior.
+    Callers catch specifically this — never a bare `except Exception` — so a
+    real API failure (bad request, rate limit, network error) still surfaces
+    loudly instead of silently degrading.
     """
 
 
@@ -47,14 +35,21 @@ def _load_policy() -> dict:
 
 
 # Set by the runtime per run (thread_id), and by the worker pool per sub-task.
-# Sent to LiteLLM as its session id, and as a W3C traceparent: LiteLLM's otel
-# callback starts its spans from it, so every call of one run — agents and
-# workers — lands in one LangWatch trace, with the run's total cost.
-session_id: ContextVar[str | None] = ContextVar("litellm_session_id", default=None)
+# LangWatch traces the run from this session id. traceparent() is a W3C trace
+# context derived from it, so every call of one run — agents and workers —
+# lands in one trace. trace_id() is the id returned on run results.
+session_id: ContextVar[str | None] = ContextVar("run_session_id", default=None)
 
 
-def traceparent(sid: str) -> str:
-    """The same trace id and root span id for every call of a run."""
+def traceparent(sid: str | None = None) -> str:
+    """The same trace id and root span id for every call of a run.
+
+    Pass a session id, or omit it to use the current `session_id` context.
+    """
+    if sid is None:
+        sid = session_id.get()
+    if not sid:
+        raise ValueError("session id is not set")
     h = hashlib.sha256(sid.encode()).hexdigest()
     return f"00-{h[:32]}-{h[32:48]}-01"
 
@@ -64,67 +59,27 @@ def trace_id(sid: str) -> str:
     return traceparent(sid).split("-")[1]
 
 
-async def _add_session_header(request: httpx2.Request) -> None:
-    sid = session_id.get()
-    if sid:
-        request.headers["x-litellm-session-id"] = sid
-        request.headers["traceparent"] = traceparent(sid)
-
-
 class ModelGateway:
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(self) -> None:
         self.policy = _load_policy()
-        self._client = self._build_client(api_key or os.environ.get("ANTHROPIC_API_KEY") or "litellm")
-        self._skills_client = self._build_skills_client()
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise MissingAPIKeyError("ANTHROPIC_API_KEY is not set")
 
-    @staticmethod
-    def _build_skills_client() -> anthropic.AsyncAnthropic | None:
-        # Skill uploads (list/create/new version) go straight to Cloudflare:
-        # LiteLLM only proxies an older Skills API and has no versions endpoint.
-        base_url = os.environ.get("ANTHROPIC_BASE_URL")
-        token = os.environ.get("ANTHROPIC_GATEWAY_TOKEN")
-        if not (base_url and token):
-            return None
-        return anthropic.AsyncAnthropic(
-            api_key=token,
-            base_url=base_url.rstrip("/"),
-            default_headers={"cf-aig-authorization": f"Bearer {token}"},
-            http_client=httpx2.AsyncClient(),
-        )
+        kwargs: dict[str, str] = {"api_key": api_key}
+        base_url = os.getenv("ANTHROPIC_BASE_URL")
+        if base_url:
+            kwargs["base_url"] = base_url
 
-    def _build_client(self, api_key: str) -> anthropic.AsyncAnthropic | None:
-        base_url = os.environ.get("LITELLM_BASE_URL")
-        if not base_url:
-            return None
-        #httpx2 is used as the anthropic library doesnot accept the httpx library
-        return anthropic.AsyncAnthropic(
-            api_key=api_key,
-            base_url=base_url.rstrip("/"),
-            http_client=httpx2.AsyncClient(event_hooks={"request": [_add_session_header]}),
-        )
+        self._client = anthropic.AsyncAnthropic(**kwargs)
 
     def require_client(self) -> anthropic.AsyncAnthropic:
-        """Raw client access for callers that need more than `complete()`
-        exposes — e.g. `container`/`tools` params for Skills + code
-        execution, which have no equivalent in the plain chat-completion
-        shape `complete()` wraps. Same missing-config guard as
-        `complete()`, so callers get one consistent failure mode either way."""
-        if self._client is None:
-            raise MissingAPIKeyError(
-                "LITELLM_BASE_URL is not set — point it at the LiteLLM proxy "
-                "(e.g. http://localhost:4000) to enable real model calls for this node."
-            )
+        """Raw client access for callers that need more than `complete()`."""
         return self._client
 
     def require_skills_client(self) -> anthropic.AsyncAnthropic:
-        """Client for the Skills upload API only. Running a skill still uses
-        `require_client()`, so it goes through LiteLLM and gets traced."""
-        if self._skills_client is None:
-            raise MissingAPIKeyError(
-                "ANTHROPIC_BASE_URL / ANTHROPIC_GATEWAY_TOKEN are not set — "
-                "skill uploads go straight to the Cloudflare AI Gateway."
-            )
-        return self._skills_client
+        """Same client as `require_client()`; skill uploads use the Anthropic API directly."""
+        return self._client
 
     async def complete(self, node: str, system: str, user: str) -> str:
         client = self.require_client()

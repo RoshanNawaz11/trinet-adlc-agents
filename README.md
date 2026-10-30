@@ -48,127 +48,23 @@ uv run pytest
 
 ## How the model is reached
 
-All model calls (chat, MCP tool loop, running Skills, code execution) go through LiteLLM. Skill
-uploads are the one exception and go straight to Cloudflare. Both clients live in
-`src/agents/model/gateway.py`.
+Model calls go directly to the Anthropic API using the official Python SDK. Configure with `ANTHROPIC_API_KEY` (required) and optionally `ANTHROPIC_BASE_URL` to override the default endpoint.
 
-```
-model calls:    agents ──▶ LiteLLM :4000 ──(Cloudflare token)──▶ Cloudflare AI Gateway ──(stored Anthropic key)──▶ Anthropic
-skill uploads:  agents ──────────────(Cloudflare token)──────▶ Cloudflare AI Gateway ──(stored Anthropic key)──▶ Anthropic
-```
+Chat, the MCP tool loop, running Skills, and code execution all use one client in
+`src/agents/model/gateway.py`. `require_client()` and `require_skills_client()` return that same
+client, so skill uploads (list, create, new version) use the Anthropic API directly as well.
+Without `ANTHROPIC_API_KEY`, `ModelGateway` raises `MissingAPIKeyError`.
 
-- **Model calls** (`require_client()`) need `LITELLM_BASE_URL`. Without it, nodes fall back to
-  dummy behaviour (`MissingAPIKeyError`). `ANTHROPIC_API_KEY` is only sent to LiteLLM, so any value
-  works (or leave it out) unless LiteLLM has a master key set.
-- **Skill uploads** (`require_skills_client()`: list, create, new version) need
-  `ANTHROPIC_BASE_URL` + `ANTHROPIC_GATEWAY_TOKEN`. They skip LiteLLM because LiteLLM only proxies
-  an older Skills API (different field names) and has no endpoint for uploading a new skill
-  version. They are file uploads, not model calls, so nothing useful is lost from tracing.
-  Running a skill is a normal model call and still goes through LiteLLM.
-
-Nobody here needs an Anthropic API key. The Anthropic key is stored in the Cloudflare gateway
-(BYOK: AI Gateway → `fawm-project-key` → Provider Keys), and Cloudflare adds it to every request
-that carries a valid gateway token.
-
-Models per node are set in `src/agents/model/policy.yaml`. The names must match `model_name`
-entries in LiteLLM's `litellm_config.yaml`.
-
-To set up the same route for another project, see
-[docs/claude-via-litellm-cloudflare.md](docs/claude-via-litellm-cloudflare.md).
+Models per node are set in `src/agents/model/policy.yaml`.
 
 ## Observability
 
-**Only LiteLLM talks to LangWatch. The agents send nothing.** Set `LANGWATCH_DISABLED=true` in `.env`.
+LangWatch provides agent-side tracing. Enable with `LANGWATCH_DISABLED=false` and configure `LANGWATCH_API_KEY` and `LANGWATCH_ENDPOINT_URL`.
 
-```
-agents ──LLM call + x-litellm-session-id: <thread_id>──▶ LiteLLM :4000 ──▶ Cloudflare / Anthropic
-                                                            │
-                                                            └── OTel (otel callback) ──▶ LangWatch :5560
-```
-
-- Every LLM request becomes a trace in LangWatch (model, tokens, latency, and message content).
-- MCP tool calls are visible as `tool_use` / `tool_result` blocks inside the LLM messages. They are
-  not separate spans, because the agents call the MCP server directly, not through LiteLLM.
-- The agents send the run's `thread_id` as `x-litellm-session-id` (see `session_id` in `gateway.py`
-  and `run_query` in `runtime/runner.py`) so requests from one run can be grouped.
-- **Not captured:** graph or node spans, whole-run traces, non-LLM work. LiteLLM only sees requests
-  that pass through it.
-- To get the agents' own graph traces instead, leave `LANGWATCH_DISABLED` unset and set
-  `LANGWATCH_API_KEY` and `LANGWATCH_ENDPOINT_URL`. That uses the LangWatch SDK from this repo.
-
-Observability never blocks a run. If LangWatch is down or rejects the key, LiteLLM logs the export
-error and the request still succeeds.
-
-### The LiteLLM + LangWatch stack
-
-It lives in a separate repo, `llm-gateway-observability-poc/llm-gateway-poc`:
-
-- `docker-compose.yml`: the self-hosted LangWatch stack (UI on http://localhost:5560)
-- `litellm_config.yaml`: the LiteLLM proxy config (model entries + the `otel` callback)
-- `.env`: LiteLLM's credentials (Cloudflare URL/token or an Anthropic key), the `OTEL_*` variables
-  that point at LangWatch, and the LangWatch secrets
-
-Start order (run these in WSL or Git Bash; keep each in its own terminal):
-
-```bash
-# 1. LangWatch (Docker Desktop must be running)
-docker compose up -d
-
-# 2. LiteLLM. It only reads .env and the config at startup, so restart it after any change.
-set -a && source .env && set +a
-litellm --config litellm_config.yaml --port 4000
-
-# 3. (optional) the MCP server, then run the agents from this repo
-uv run run_so.py
-```
-
-The first time, open http://localhost:5560, create a project, and put its API key (Settings → API
-Keys) in LiteLLM's `.env` as `LANGWATCH_API_KEY`. `OTEL_HEADERS` reads it from there.
-
-`set -a` exports every variable that `source .env` sets, so the `litellm` process can read them
-(`os.environ/...` in the config). Without it they stay in the shell only.
-
-### Connecting LiteLLM to the Cloudflare AI Gateway
-
-Each Claude model gets an entry in `litellm_config.yaml` that points at the gateway:
-
-```yaml
-model_list:
-  - model_name: claude-haiku-4-5-20251001          # must match policy.yaml
-    litellm_params:
-      model: anthropic/claude-haiku-4-5-20251001
-      api_base: os.environ/ANTHROPIC_BASE_URL      # the gateway's /anthropic URL
-      api_key: os.environ/ANTHROPIC_GATEWAY_TOKEN  # LiteLLM requires a key; Cloudflare accepts the token
-      extra_headers:
-        cf-aig-authorization: os.environ/CF_AIG_AUTH_HEADER   # "Bearer <token>"
-
-litellm_settings:
-  callbacks: ["otel"]
-```
-
-And in LiteLLM's `.env`:
-
-```
-ANTHROPIC_BASE_URL=https://gateway.ai.cloudflare.com/v1/<account-id>/<gateway-id>/anthropic
-ANTHROPIC_GATEWAY_TOKEN=<cfut_... token>
-CF_AIG_AUTH_HEADER="Bearer ${ANTHROPIC_GATEWAY_TOKEN}"   # must come after ANTHROPIC_GATEWAY_TOKEN
-```
-
-When bash sources `.env`, `${VAR}` only sees variables defined on earlier lines, so keep lines that
-reference other variables (`CF_AIG_AUTH_HEADER`, `OTEL_HEADERS`) below them. To add another Claude
-model, copy the entry, change both model names, add it to `policy.yaml`, and restart LiteLLM.
-
-To check the chain without the agents:
-
-```bash
-curl http://localhost:4000/v1/messages -H "x-api-key: anything" -H "anthropic-version: 2023-06-01" \
-  -H "content-type: application/json" \
-  -d '{"model":"claude-haiku-4-5-20251001","max_tokens":20,"messages":[{"role":"user","content":"hi"}]}'
-```
-
-**TLS:** LiteLLM checks Cloudflare's certificate against the public CA list. If a corporate proxy
-inspects HTTPS (e.g. Cloudflare WARP) and LiteLLM fails with `CERTIFICATE_VERIFY_FAILED`, set
-`SSL_CERT_FILE=/path/to/ca-bundle.pem` in LiteLLM's `.env`. LiteLLM ignores `SSL_CA_BUNDLE`.
+Each run sets `session_id` (`gateway.py`, from `run_query` in `runtime/runner.py`). `traceparent()`
+is stable for that session and `trace_id()` is returned on the run result, so one run's calls stay
+together. Observability never blocks a run: if LangWatch is down or rejects the key, the request
+still succeeds.
 
 ## MCP tools (optional)
 
@@ -188,12 +84,12 @@ Copy `.env.example` to `.env`. It is gitignored. Never commit real keys.
 
 | Variable | Needed when | Meaning |
 |---|---|---|
-| `LITELLM_BASE_URL` | always | `http://localhost:4000` |
-| `ANTHROPIC_API_KEY` | LiteLLM has a master key | Sent to LiteLLM only. Optional otherwise. |
-| `ANTHROPIC_BASE_URL`, `ANTHROPIC_GATEWAY_TOKEN` | skill uploads | Cloudflare gateway URL (ending in `/anthropic`) and `cfut_...` token |
-| `LANGWATCH_DISABLED` | LiteLLM-only observability | `true` |
+| `ANTHROPIC_API_KEY` | Required | Anthropic API key for model calls and skill uploads |
+| `ANTHROPIC_BASE_URL` | Optional | Custom Anthropic endpoint (uses SDK default if unset) |
+| `LANGWATCH_DISABLED` | Optional | Set to `false` to enable tracing (default: `false`) |
+| `LANGWATCH_API_KEY` | Required (if tracing enabled) | LangWatch API key |
+| `LANGWATCH_ENDPOINT_URL` | Required (if tracing enabled) | LangWatch endpoint |
 | `MCP_SERVER` | you want MCP tools | e.g. `http://127.0.0.1:8080/mcp` |
-| `LANGWATCH_API_KEY`, `LANGWATCH_ENDPOINT_URL` | only if agents trace themselves | SDK tracing from this repo |
 
 Keep `.env` files that you `source` in WSL with **LF line endings**. CRLF puts a hidden carriage
 return at the end of every value and causes `: command not found` errors and failed auth.
@@ -202,14 +98,9 @@ return at the end of every value and causes `: command not found` errors and fai
 
 | Symptom | Likely cause |
 |---|---|
-| `400 Invalid model name ...` from LiteLLM | The model in `policy.yaml` isn't in `litellm_config.yaml`, or LiteLLM wasn't restarted after editing it |
-| `401 Missing Anthropic API Key` from LiteLLM | LiteLLM's `.env` lacks the Cloudflare variables (or key), or LiteLLM wasn't started with `.env` loaded |
-| `ANTHROPIC_BASE_URL / ANTHROPIC_GATEWAY_TOKEN are not set` | This repo's `.env` is missing the two skill-upload variables |
-| `401` with `AiGatewayError` / `Unauthorized` | The Cloudflare token is wrong, expired, or not valid for this gateway |
-| `ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is required for Skills API` | Something called `/v1/skills` on LiteLLM. Skill uploads should use `require_skills_client()` |
-| `Failed to export spans ... 401` in the LiteLLM terminal | Wrong or stale `LANGWATCH_API_KEY`, or CRLF line endings in LiteLLM's `.env`. Test the key directly against `http://localhost:5560/api/otel/v1/traces`: 401 means invalid, 400 means accepted |
-| Nothing in LangWatch | Look at the project that owns the key and widen the time range. Check the LiteLLM terminal for export errors. |
-| `MissingAPIKeyError` / dummy output | No credentials configured for any route |
+| Model calls fail | If model calls fail, check that `ANTHROPIC_API_KEY` is set and valid. If using a custom `ANTHROPIC_BASE_URL`, verify the endpoint is reachable. |
+| `MissingAPIKeyError` | `ANTHROPIC_API_KEY` is not set |
+| Nothing in LangWatch | Confirm `LANGWATCH_DISABLED=false`, and that `LANGWATCH_API_KEY` and `LANGWATCH_ENDPOINT_URL` are set. Widen the time range in the project that owns the key. |
 | Startup validation error about `MCP_SERVER` | It was set to an empty string. Unset it or give it a URL. |
 
 ## Layout

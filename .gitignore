@@ -20,3 +20,18 @@ checkpoints/
 logs/
 
 pytest_cache/
+# ADLC / Cursor tooling (injected at Dev time; not product code)
+.cursor/skills/
+.adlc/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+*.egg-info/
+.venv/
+venv/

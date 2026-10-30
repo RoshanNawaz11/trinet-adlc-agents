@@ -1,3 +1,6 @@
+# Model policy configuration for direct Anthropic API calls.
+# Models, max_tokens, and other settings remain unchanged.
+#
 # node -> model config. Read by model/gateway.py, called for real whenever
 # ANTHROPIC_API_KEY is set. Nodes without an entry use `default`.
 #
