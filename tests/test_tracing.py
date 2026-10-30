@@ -21,13 +21,20 @@ def test_traceparent_stable_for_session():
     """Traceparent is stable within a session and differs between sessions."""
     from agents.model.gateway import session_id, traceparent
 
-    # First session
+    # Test context-var path (session_id.set() then traceparent() with no arg)
     session_id.set("session-1")
     trace_1a = traceparent()
     trace_1b = traceparent()
-    assert trace_1a == trace_1b, "traceparent should be stable for same session"
+    assert trace_1a == trace_1b, "traceparent should be stable for same session (context-var path)"
 
-    # Second session
     session_id.set("session-2")
     trace_2 = traceparent()
-    assert trace_2 != trace_1a, "traceparent should differ between sessions"
+    assert trace_2 != trace_1a, "traceparent should differ between sessions (context-var path)"
+
+    # Test explicit session id path (traceparent(sid) with explicit arg)
+    trace_exp_1a = traceparent("session-1")
+    trace_exp_1b = traceparent("session-1")
+    assert trace_exp_1a == trace_exp_1b, "traceparent should be stable for same session (explicit arg)"
+
+    trace_exp_2 = traceparent("session-2")
+    assert trace_exp_2 != trace_exp_1a, "traceparent should differ between sessions (explicit arg)"
