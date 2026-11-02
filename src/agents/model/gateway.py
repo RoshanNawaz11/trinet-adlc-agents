@@ -61,7 +61,16 @@ def trace_id(sid: str) -> str:
 
 class ModelGateway:
     def __init__(self) -> None:
+        # Client creation is deferred so construction succeeds when
+        # ANTHROPIC_API_KEY is unset. require_client() / require_skills_client()
+        # raise MissingAPIKeyError instead.
         self.policy = _load_policy()
+        self._client: anthropic.AsyncAnthropic | None = None
+
+    def _ensure_client(self) -> anthropic.AsyncAnthropic:
+        if self._client is not None:
+            return self._client
+
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise MissingAPIKeyError("ANTHROPIC_API_KEY is not set")
@@ -72,14 +81,15 @@ class ModelGateway:
             kwargs["base_url"] = base_url
 
         self._client = anthropic.AsyncAnthropic(**kwargs)
+        return self._client
 
     def require_client(self) -> anthropic.AsyncAnthropic:
         """Raw client access for callers that need more than `complete()`."""
-        return self._client
+        return self._ensure_client()
 
     def require_skills_client(self) -> anthropic.AsyncAnthropic:
         """Same client as `require_client()`; skill uploads use the Anthropic API directly."""
-        return self._client
+        return self._ensure_client()
 
     async def complete(self, node: str, system: str, user: str) -> str:
         client = self.require_client()

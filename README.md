@@ -53,7 +53,7 @@ Model calls go directly to the Anthropic API using the official Python SDK. Conf
 Chat, the MCP tool loop, running Skills, and code execution all use one client in
 `src/agents/model/gateway.py`. `require_client()` and `require_skills_client()` return that same
 client, so skill uploads (list, create, new version) use the Anthropic API directly as well.
-Without `ANTHROPIC_API_KEY`, `ModelGateway` raises `MissingAPIKeyError`.
+Without `ANTHROPIC_API_KEY`, `require_client()` and `require_skills_client()` raise `MissingAPIKeyError`. Constructing `ModelGateway` does not.
 
 Models per node are set in `src/agents/model/policy.yaml`.
 
