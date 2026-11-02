@@ -1,36 +1,11 @@
 """One LangWatch trace per run: every model call of a run — the agents' and the
-workers' — carries the same W3C traceparent, which LiteLLM's otel callback
-starts its spans from."""
+workers' — shares one W3C traceparent derived from the run session id.
+LangWatch traces direct Anthropic calls from the agents."""
 
 from __future__ import annotations
 
-import re
-
-import httpx2
-
 from agents.model import gateway
 from agents.queue import pool
-
-
-async def test_every_call_of_a_run_carries_the_same_traceparent():
-    token = gateway.session_id.set("run-1")
-    try:
-        first, second = httpx2.Request("POST", "http://litellm/v1/messages"), httpx2.Request("POST", "http://litellm/v1/messages")
-        await gateway._add_session_header(first)
-        await gateway._add_session_header(second)
-    finally:
-        gateway.session_id.reset(token)
-
-    assert first.headers["x-litellm-session-id"] == "run-1"
-    assert re.fullmatch(r"00-[0-9a-f]{32}-[0-9a-f]{16}-01", first.headers["traceparent"])
-    assert first.headers["traceparent"] == second.headers["traceparent"]
-    assert gateway.traceparent("run-2") != first.headers["traceparent"]
-
-
-async def test_no_run_no_headers():
-    request = httpx2.Request("POST", "http://litellm/v1/messages")
-    await gateway._add_session_header(request)
-    assert "traceparent" not in request.headers
 
 
 async def test_a_worker_runs_inside_its_run(monkeypatch):
@@ -40,3 +15,26 @@ async def test_a_worker_runs_inside_its_run(monkeypatch):
     seen = await pool.run_subtask({}, {"kind": "validation.extract", "input": {}, "session_id": "run-1"})
 
     assert seen == "run-1"
+
+
+def test_traceparent_stable_for_session():
+    """Traceparent is stable within a session and differs between sessions."""
+    from agents.model.gateway import session_id, traceparent
+
+    # Test context-var path (session_id.set() then traceparent() with no arg)
+    session_id.set("session-1")
+    trace_1a = traceparent()
+    trace_1b = traceparent()
+    assert trace_1a == trace_1b, "traceparent should be stable for same session (context-var path)"
+
+    session_id.set("session-2")
+    trace_2 = traceparent()
+    assert trace_2 != trace_1a, "traceparent should differ between sessions (context-var path)"
+
+    # Test explicit session id path (traceparent(sid) with explicit arg)
+    trace_exp_1a = traceparent("session-1")
+    trace_exp_1b = traceparent("session-1")
+    assert trace_exp_1a == trace_exp_1b, "traceparent should be stable for same session (explicit arg)"
+
+    trace_exp_2 = traceparent("session-2")
+    assert trace_exp_2 != trace_exp_1a, "traceparent should differ between sessions (explicit arg)"

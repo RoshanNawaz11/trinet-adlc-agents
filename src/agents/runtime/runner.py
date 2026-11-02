@@ -128,7 +128,7 @@ class IncompleteAnswers(ValueError):
 
 def _config(thread_id: str) -> dict[str, Any]:
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
-    # No agent-side trace when LANGWATCH_DISABLED=true — LiteLLM does the tracing.
+    # LangWatch traces runs
     if os.getenv("LANGWATCH_DISABLED", "false").lower() != "true":
         config["callbacks"] = [get_current_trace().get_langchain_callback()]
     return config
@@ -151,7 +151,7 @@ async def run_query(
     thread_id = thread_id or str(uuid.uuid4())
     service_order = await fetch_service_order(service_order_id) if service_order_id and not resume else None
     run_dir(thread_id, service_order)  # the run's folder, named after the order before anything logs to it
-    session_id.set(thread_id)  # LiteLLM logs this as the session on every call of this run
+    session_id.set(thread_id)  # run session ID for tracing
     attach_metadata(thread_id=thread_id, resume=resume, service_order_id=service_order_id)
     config = _config(thread_id)
     key = idempotency_key(f"{thread_id}:{service_order_id or query}")
